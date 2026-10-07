@@ -211,18 +211,19 @@ def choose_ad(subject, slot_id, context):
     # 응답·당시 후보·플레이어 문맥을 새 결정 문서로 보존한 뒤 응답한다.
     # [문제 5 · 한 단어] 빈칸을 채워보세요.
     get_db().decisions.insert_one({
-        "_id": decision_id,
-        "schema_version": 1,
-        **response,
-        "subject": subject,
-        "media_id": subject["media_id"],
-        "player_id": context.get("player_id"),
-        "selected_at": selected_at,
+        "_id": decision_id, "schema_version": 1, **response,
+        "subject": subject, "media_id": subject["media_id"],
+        "player_id": context.get("player_id"), "selected_at": selected_at,
+        "event_time": selected_at.isoformat(),
+        "owner_user_id": selected["owner_user_id"],
+        "chosen_campaign_id": selected["campaign_id"],
+        "chosen_bid_amount": selected["bid_units"],
+        "creative": {"title": selected["title"], "body": ""},
         "candidates": [
-            {"campaign_id": row["campaign_id"], "bid_units": row["bid_units"]}
+            {"campaign_id": row["campaign_id"], "bid_units": row["bid_units"],
+            "owner_user_id": row["owner_user_id"], "bid_amount": row["bid_units"]}
             for row in candidates
         ],
-        # [문제 6 · 한 단어] 빈칸을 채워보세요.
         "context": context,
     })
     return response

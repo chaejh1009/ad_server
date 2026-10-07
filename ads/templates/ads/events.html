@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>광고 선택과 실적 확인</title>
+</head>
+<body>
+  <h1>내 광고 선택과 실적</h1>
+  <p><a href="/advertiser/bids/">입찰</a> · <a href="/advertiser/reports/">일별 보고서</a></p>
+  <p>선택 기록만 있어도 이 표에 나타납니다. 노출·클릭은 Pygame의 실제 표시·클릭 뒤 기록됩니다.</p>
+  <p>{{ message }}</p>
+  <div style="overflow-x:auto">
+    <table>
+      <thead><tr><th>결정 ID</th><th>캠페인</th><th>선택 당시 포인트</th><th>선택 시각</th><th>스냅샷</th><th>노출 시각</th><th>클릭 시각</th></tr></thead>
+      <tbody>{% for row in rows %}
+        <tr><td>{{ row.decision_id }}</td><td>{{ row.campaign_id }}</td><td>{{ row.bid_amount }}</td><td>{{ row.selected_at }}</td>
+          <td>{% if row.snapshot_ready %}준비{% else %}새 광고 요청 필요{% endif %}</td>
+          <td>{{ row.impression.event_time|default:"미기록" }}</td><td>{{ row.click.event_time|default:"미기록" }}</td></tr>
+      {% empty %}<tr><td colspan="7">소유자가 기록된 내 광고 결정이 없습니다. 게임에서 새 광고를 요청하세요.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</body>
+</html>

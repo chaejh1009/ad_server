@@ -8,4 +8,5 @@ urlpatterns = [
     path("advertiser/bids/", web_views.bid_view, name="web-bids"),
     path("campaigns/", views.campaigns, name="campaigns"),
     path("bids/", views.bids, name="bids"),
+    path("advertiser/events/", web_views.event_view, name="web-events"),
 ]

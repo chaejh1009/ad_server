@@ -5,6 +5,8 @@ from django.http import JsonResponse
 from pymongo.errors import PyMongoError
 from .media_auth import media_api_methods
 from . import services
+from .events import record_ad_event
+
 
 
 # 로그인·허용 HTTP 메서드를 검사하고 입력 오류는 400, 저장소 오류는 503으로 응답한다.
@@ -68,6 +70,17 @@ def decision(request):
         request.subject,
         request.media_body.get("slot_id"),
         request.media_body.get("context"),
+    )
+    response = JsonResponse(result)
+    response["Cache-Control"] = "no-store"
+    return response
+
+@media_api_methods("POST")
+def event(request):
+    result = record_ad_event(
+        request.subject,
+        request.media_body.get("decision_id"),
+        request.media_body.get("event_type"),
     )
     response = JsonResponse(result)
     response["Cache-Control"] = "no-store"

@@ -7,7 +7,7 @@ from django.views.decorators.http import require_http_methods
 from pymongo.errors import PyMongoError
 
 from . import services
-
+from .mongo import get_db
 
 @login_required(login_url="/accounts/login/")
 @require_http_methods(["GET", "POST"])
@@ -59,3 +59,27 @@ def bid_view(request):
         message, status = "광고 저장소에 연결할 수 없습니다.", 503
     return render(request, "ads/bids.html",
                   {"bids": bids, "message": message}, status=status)
+
+@login_required(login_url="/accounts/login/")
+@require_http_methods(["GET"])
+def event_view(request):
+    try:
+        decisions = list(get_db().decisions.find(
+            {"owner_user_id": request.user.pk}
+        ).sort("selected_at", -1).limit(30))
+        rows = []
+        for decision in decisions:
+            decision_id = decision["_id"]
+            rows.append({
+                "decision_id": decision_id,
+                "campaign_id": decision.get("chosen_campaign_id", decision.get("campaign_id")),
+                "bid_amount": decision.get("chosen_bid_amount", decision.get("bid_units")),
+                "selected_at": decision.get("selected_at"),
+                "snapshot_ready": bool(decision.get("chosen_campaign_id")),
+                "impression": get_db().ad_events.find_one({"_id": decision_id + ":impression"}),
+                "click": get_db().ad_events.find_one({"_id": decision_id + ":click"}),
+            })
+        return render(request, "ads/events.html", {"rows": rows})
+    except PyMongoError:
+        return render(request, "ads/events.html", {
+            "rows": [], "message": "광고 실적 저장소에 연결할 수 없습니다."}, status=503)
