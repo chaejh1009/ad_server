@@ -6,3 +6,4 @@
 kafka-data/
 *.log
 **/*.sqlite3
+!example.env
