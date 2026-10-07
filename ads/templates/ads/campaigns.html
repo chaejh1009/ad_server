@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>광고주 캠페인 관리</title>
+</head>
+<body>
+  <h1>내 캠페인 관리</h1>
+  <p>로그인 광고주: {{ request.user.username }}</p>
+  <nav><a href="/advertiser/bids/">광고주 비딩창</a></nav>
+  <p role="status">{{ message }}</p>
+  <form method="post" action="/advertiser/campaigns/">
+    {% csrf_token %}
+    <p><label>캠페인 ID <input name="campaign_id" required
+      pattern="[a-z0-9][a-z0-9-]{1,47}"></label></p>
+    <p><label>제목 <input name="title" required maxlength="80"></label></p>
+    <p><label>현재 광고 이미지 <select name="creative_path">
+      <option value="/static/ads/creatives/forest-tools.png">forest-tools.png</option>
+      <option value="/static/ads/creatives/camp-tea.png">camp-tea.png</option>
+    </select></label></p>
+    <p><label>접속기 광고 슬롯 <select name="slot_id">
+      <option value="village-board">village-board</option>
+      <option value="lobby-banner">lobby-banner</option>
+    </select></label></p>
+    <p><label><input name="active" type="checkbox" checked>활성</label></p>
+    <button type="submit">캠페인 저장</button>
+  </form>
+  <h2>내 캠페인 목록</h2>
+  <ul>
+    {% for campaign in campaigns %}
+    <li>{{ campaign.campaign_id }} · {{ campaign.title }} ·
+      {{ campaign.slot_id }} · 활성={{ campaign.active }} · {{ campaign.creative_path }}</li>
+    {% empty %}<li>아직 캠페인이 없습니다.</li>{% endfor %}
+  </ul>
+  <form method="post" action="/accounts/logout/">
+    {% csrf_token %}
+    <button type="submit">광고주 로그아웃</button>
+  </form>
+</body>
+</html>

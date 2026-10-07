@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>광고주 비딩창</title>
+</head>
+<body>
+  <h1>광고주 비딩창</h1>
+  <p>로그인 광고주: {{ request.user.username }}</p>
+  <nav><a href="/advertiser/campaigns/">내 캠페인 관리</a></nav>
+  <p role="status">{{ message }}</p>
+  <form method="post" action="/advertiser/bids/">
+    {% csrf_token %}
+    <p><label>내 캠페인 ID <input name="campaign_id" required></label></p>
+    <p><label>입찰 포인트 <input name="bid_amount" type="number"
+      min="1" max="10000" step="1" required></label></p>
+    <button type="submit">입찰 저장</button>
+  </form>
+  <h2>내 현재 입찰</h2>
+  <ul>
+    {% for bid in bids %}
+    <li>{{ bid.campaign_id }} · {{ bid.bid_amount }} 포인트 · {{ bid.updated_at }}</li>
+    {% empty %}<li>아직 입찰이 없습니다. 내 활성 캠페인 ID로 입찰하세요.</li>{% endfor %}
+  </ul>
+  <form method="post" action="/accounts/logout/">
+    {% csrf_token %}
+    <button type="submit">광고주 로그아웃</button>
+  </form>
+</body>
+</html>

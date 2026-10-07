@@ -1,0 +1,7 @@
+storage:
+  dbPath: infra/mongo/data/node1
+net:
+  bindIp: localhost
+  port: 27017
+replication:
+  replSetName: ads-rs
