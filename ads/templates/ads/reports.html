@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>광고주 일별 보고서</title>
+</head>
+<body>
+  <h1>내 광고 일별 보고서</h1>
+  <p><a href="/advertiser/campaigns/">캠페인</a> · <a href="/advertiser/bids/">입찰</a> · <a href="/advertiser/events/">선택과 실적</a></p>
+  <p>노출일 기준 · 고정 입력 파일까지 관찰한 클릭입니다. 모의 포인트 합은 실제 청구액이 아닙니다.</p>
+  <p>{{ message }}</p>
+  <div style="overflow-x:auto">
+    <table>
+      <thead><tr><th>서울 날짜</th><th>캠페인</th><th>슬롯</th><th>노출</th><th>클릭</th><th>CTR 0~1</th><th>모의 포인트 합</th><th>원본 마지막 시각</th><th>보고서 생성 시각</th></tr></thead>
+      <tbody>{% for row in rows %}
+        <tr><td>{{ row.date }}</td><td>{{ row.campaign_id }}</td><td>{{ row.slot_id }}</td><td>{{ row.impressions }}</td><td>{{ row.clicks }}</td>
+          <td>{{ row.ctr|floatformat:3 }}</td><td>{{ row.bid_units_sum }}</td><td>{{ row.source_max_event_time }}</td><td>{{ row.generated_at }}</td></tr>
+      {% empty %}<tr><td colspan="9">게시된 내 보고서가 없습니다.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # 광고 서버 (ad_server)
 
-`game_server`와 연동하는 Django 기반 광고 서버입니다. 광고주는 캠페인과 입찰을 관리하고, 게임 서버는 매체 인증을 거쳐 광고 선택 API를 호출합니다. 게임 ORM에 직접 접근하지 않고 매체가 전달한 공개 식별자와 문맥을 사용합니다.
+`game_server`와 연동하는 Django 기반 광고 서버입니다. 광고주는 캠페인·입찰과 게시된 일별 보고서를 확인하고, 게임 서버는 매체 인증을 거쳐 광고 선택 API를 호출합니다. 게임 ORM에 직접 접근하지 않고 매체가 전달한 공개 식별자와 문맥을 사용합니다.
 
 ## 구성
 
@@ -21,12 +21,13 @@ ad_server/
 │   ├── events.py         # 선택 스냅샷 기반 노출·클릭 기록
 │   ├── exporting.py      # 사건 NDJSON 입출력·내보내기
 │   ├── timestamps.py     # ISO 시각 UTC 정규화
-│   ├── reporting.py      # 보고서 게시·조회 서비스 (집계 함수 미구현)
-│   ├── management/commands/ # 내보내기·보고서 후보 명령
+│   ├── delivery.py       # 미전달 사건의 로컬 파일 전달·표식 갱신
+│   ├── reporting.py      # 서울 노출일별 집계·보고서 게시·조회
+│   ├── management/commands/ # 사건 내보내기·전달·보고서 생성·게시·대조
 │   ├── repository.py     # 캠페인·입찰 저장 및 조회
 │   ├── mongo.py          # MongoDB 연결 풀
 │   ├── media_auth.py     # 매체 서버 인증
-│   ├── templates/        # 로그인·캠페인·입찰·실적 화면
+│   ├── templates/        # 로그인·캠페인·입찰·실적·일별 보고서 화면
 │   └── statics/          # 광고 이미지
 ├── docs/ad-server-routing/ # HTTP·관리 명령·파일별 호출 문서
 ├── config/mongo-node1.yml
@@ -85,7 +86,7 @@ python ad_config/manage.py createsuperuser
 python ad_config/manage.py runserver 127.0.0.1:8001
 ```
 
-`migrate`는 SQLite에 Django 인증·세션 테이블을 만듭니다. 광고 데이터는 MongoDB의 `campaigns`, `bids`, `decisions`, `ad_events` 컬렉션에 저장됩니다. 보고서 게시 서비스를 직접 호출하면 `ad_daily_reports`도 사용합니다.
+`migrate`는 SQLite에 Django 인증·세션 테이블을 만듭니다. 광고 데이터는 MongoDB의 `campaigns`, `bids`, `decisions`, `ad_events` 컬렉션에 저장됩니다. `load_ad_reports`로 보고서를 게시하면 `ad_daily_reports`도 사용합니다.
 
 ## 광고주 사용 순서
 
@@ -94,6 +95,8 @@ python ad_config/manage.py runserver 127.0.0.1:8001
 3. `/advertiser/bids/`에서 본인 소유의 활성 캠페인에 입찰합니다.
 4. 게임 서버가 광고 선택 API를 호출하면 해당 매체·슬롯의 후보 중 광고를 선택합니다.
 5. 매체가 실제 표시·클릭 뒤 사건 API를 호출하면 `/advertiser/events/`에서 본인 소유의 최근 선택 30개와 노출·클릭 시각을 확인합니다. 광고 선택만으로 노출이 기록되지는 않습니다.
+
+6. 아래 보고서 명령으로 사건 파일을 집계·게시한 뒤 `/advertiser/reports/`에서 본인의 서울 노출일별 노출·클릭·CTR·모의 포인트 합을 확인합니다.
 
 캠페인 ID는 2~48자의 소문자·숫자·하이픈이며 첫 글자는 소문자 또는 숫자여야 합니다. 제목은 공백을 제거한 뒤 1~80자입니다. 광고 슬롯은 `village-board`, `lobby-banner`를 지원합니다.
 
@@ -196,9 +199,9 @@ curl -X POST http://127.0.0.1:8001/api/media/decision/ \
 
 사건 ID는 `decision_id:event_type`입니다. 같은 사건을 재전송하면 `created: false`이며 기존 시각과 값을 유지합니다. 성공 응답에 `Cache-Control: no-store`가 붙습니다. 사건은 `ad_events`에 `ad-event/v1` 스키마로 저장되고 클릭의 `impression_time`은 선행 노출 시각입니다. 인증 실패는 401, 검증 실패는 400, MongoDB 오류는 503입니다.
 
-`GET /advertiser/events/`는 광고주 세션으로 본인 소유의 최근 결정 30개와 연결된 사건을 읽습니다. 방문 자체로 사건을 만들거나 일별 집계를 수행하지 않습니다. 현재 화면의 일별 보고서 링크 `/advertiser/reports/`에는 대응하는 URL/view가 없어 404입니다.
+`GET /advertiser/events/`는 광고주 세션으로 본인 소유의 최근 결정 30개와 연결된 사건을 읽습니다. 방문 자체로 사건을 만들거나 일별 집계를 수행하지 않습니다. 일별 보고서 링크 `/advertiser/reports/`는 본인 소유의 게시된 보고서를 날짜 내림차순으로 보여줍니다. 저장소 오류는 503으로 표시합니다.
 
-## 사건 NDJSON 내보내기와 보고서 구현 범위
+## 사건 NDJSON 내보내기와 일별 보고서
 
 저장소 루트에서 실행합니다. 경계 시각은 시간대가 있는 ISO 형식이며, 아래 예시는 한국 시각 하루의 노출에 속하는 사건을 내보냅니다.
 
@@ -213,19 +216,43 @@ python ad_config/manage.py export_ad_events \
 
 출력은 Mongo `_id`를 제외한 공개 12필드의 UTF-8 NDJSON이며 같은 경로의 파일을 덮어씁니다. 명령은 `path`, `rows`, `sha256`, `schema_version`, `source_kind`, UTC로 정규화한 `since`·`until`을 JSON으로 표준 출력합니다. 별도 manifest 파일은 만들지 않습니다. 로컬 `data/`는 Git에서 제외됩니다.
 
-`reporting.publish_reports(rows)`와 `list_reports(owner_user_id)`는 `ad-report/v1` 보고서의 Mongo 게시·조회 서비스입니다. 게시 업무 키는 `(owner_user_id, campaign_id, slot_id, date)`의 공백 없는 JSON 배열 문자열이며 같은 `_id`는 전체 교체합니다. 현재 HTTP 경로와 게시 명령은 연결되어 있지 않습니다.
+미전달 사건을 같은 로컬 파일에 누적하려면 다음 명령을 사용합니다. `--limit`은 한 번에 읽는 사건 수이며 기본값은 100입니다. 대기 사건이 남으면 반복 실행합니다.
 
-`build_ad_reports --source … --output …` 관리 명령 파일은 있지만 참조하는 `reporting.build_daily_reports`가 없어 import 단계에서 실패합니다. 일별 보고서 계산과 조회 화면은 아직 사용할 수 없습니다.
+```bash
+python ad_config/manage.py deliver_ad_events --output data/ad-events.ndjson --limit 100
+```
+
+한 writer가 파일을 관리하는 방식입니다. 기존 파일과 사건 ID별로 병합하고 동일 ID의 내용 충돌은 거절합니다. 임시 파일을 완성해 교체한 뒤 Mongo 사건에 `file_delivered_at`을 기록합니다. 파일 교체 후 표식 기록 전에 중단되면 재실행으로 표식을 보완할 수 있습니다. 이미 표식이 있는 사건은 전달 파일이 삭제되어도 다시 선택하지 않습니다.
+
+고정 사건 파일에서 보고서 후보를 생성하고 게시·대조합니다. 아래 대조 명령은 **전체 보관 사건 파일**과 **전체 게시 보고서**를 비교하므로 날짜별 부분 파일을 사용하면 다른 날짜의 게시 행이 추가 키로 판정될 수 있습니다.
+
+```bash
+python ad_config/manage.py build_ad_reports \
+  --source data/ad-events.ndjson --output data/ad-reports.ndjson
+python ad_config/manage.py load_ad_reports --source data/ad-reports.ndjson
+python ad_config/manage.py check_ad_reports \
+  --source data/ad-events.ndjson --output data/ad-report-check.json
+```
+
+집계는 같은 ID·내용의 사건을 중복 제거하고 클릭에 대응하는 노출이 같은 입력에 있는지 검사합니다. 클릭도 서울 기준 **노출일**에 귀속합니다. 업무 키는 `(owner_user_id, campaign_id, slot_id, date)`이며 노출 수·클릭 수·CTR(`clicks/impressions`, 0~1)과 노출의 `bid_amount` 합인 `bid_units_sum`을 기록합니다. 이 합은 모의 포인트이며 실제 청구액이 아닙니다.
+
+`build_ad_reports`는 후보 NDJSON만 생성합니다. `load_ad_reports`는 `ad-report/v1` 스키마와 업무 키의 공백 없는 JSON 배열 문자열 `_id`를 검사한 뒤 같은 키의 문서를 전체 교체하고 `published=처리행수`를 출력합니다. 입력에 없는 기존 보고서는 유지하며 행별 저장이므로 중간 실패 시 앞서 게시한 행은 남습니다.
+
+`check_ad_reports`는 누락·추가 키와 공통 키의 `impressions`, `clicks`, `ctr`, `bid_units_sum`, `source_max_event_time`을 대조합니다. `generated_at`은 비교하지 않습니다. 원본 SHA-256·행 수·고유 사건 수·차이 목록·`ok`를 JSON 파일과 표준 출력에 기록하고, 불일치하면 증거 저장 후 실패 종료합니다. 이 명령은 게시 데이터를 수정하지 않습니다.
 
 ## 라우팅 문서
 
-[문서 안내](docs/README.md)와 [전체 라우팅](docs/ad-server-routing/README.md)에서 HTTP 경로, 계층별 호출 흐름, Mongo 문서 계약과 파일별 함수 시그니처를 확인할 수 있습니다. 현재 문서 범위는 런타임 Python 23파일, top-level 함수·클래스 42개, 직접 정의한 클래스 메서드 4개입니다.
+[문서 안내](docs/README.md)와 [전체 라우팅](docs/ad-server-routing/README.md)에서 HTTP 경로, 계층별 호출 흐름, Mongo 문서 계약과 파일별 함수 시그니처를 확인할 수 있습니다. 현재 문서 범위는 런타임 Python 27파일, top-level 함수·클래스 48개, 직접 정의한 클래스 메서드 10개입니다.
 
 ## 확인 및 현재 코드의 제한
 
 ```bash
 python ad_config/manage.py check
 python ad_config/manage.py help export_ad_events
+python ad_config/manage.py help deliver_ad_events
+python ad_config/manage.py help build_ad_reports
+python ad_config/manage.py help load_ad_reports
+python ad_config/manage.py help check_ad_reports
 ```
 
 현재 시스템 검사에서는 `ads` URL namespace 중복 경고(`urls.W005`)가 발생합니다. `ads.urls`가 루트와 `/api/ads/`에 함께 등록되어 있기 때문입니다.
@@ -235,5 +262,5 @@ python ad_config/manage.py help export_ad_events
 - `settings.py`에서 환경변수로 읽은 `SECRET_KEY`를 뒤쪽의 개발용 고정 키가 덮어씁니다. `DEBUG=True`이며 `ALLOWED_HOSTS`도 뒤에서 빈 목록으로 재설정됩니다. 운영 배포 전 설정 정리가 필요합니다.
 - `repository.save_bid_document()`는 `bids`에 저장한 뒤 `orders` 컬렉션을 조회합니다. 따라서 입찰은 저장되어도 반환값이 `None`이 될 수 있으며, JSON 입찰 POST의 정상 응답 처리에 문제가 있습니다. 웹 입찰 화면은 저장 후 `bids` 목록을 다시 조회합니다.
 - 자동 테스트 파일은 기본 골격 상태입니다. 시스템 검사만으로 MongoDB 저장·조회나 게임 서버 연동이 검증되지는 않습니다.
-- 현재 범위는 캠페인·입찰 관리, 광고 선택 스냅샷, 노출·클릭 사건 기록·실적 조회와 NDJSON 내보내기입니다. 과금·예산 차감·일별 집계 함수·보고서 HTTP 화면은 구현되어 있지 않습니다.
-- 2026-10-07 점검에서 시스템 검사는 기존 namespace 경고 1건과 함께 성공했고 내보내기 명령 help도 정상 로딩되었습니다. 보고서 후보 명령 help는 미정의 `build_daily_reports` ImportError로 실패했습니다. 실제 Mongo 저장·내보내기와 게임 연동은 이번 점검에서 실행하지 않았습니다.
+- 현재 범위는 캠페인·입찰 관리, 광고 선택 스냅샷, 노출·클릭 기록·조회, NDJSON 내보내기·전달, 일별 집계·게시·대조와 보고서 화면입니다. 과금·예산 차감은 구현되어 있지 않습니다.
+- 2026-10-08 점검에서 시스템 검사는 기존 namespace 경고 1건과 함께 성공했고 사건 전달·보고서 생성·게시·대조 명령 help가 정상 로딩되었습니다. 실제 Mongo 전달·게시·대조와 브라우저·게임 연동 실행은 이번 점검에 포함하지 않았습니다.

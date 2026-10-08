@@ -83,3 +83,13 @@ def event_view(request):
     except PyMongoError:
         return render(request, "ads/events.html", {
             "rows": [], "message": "광고 실적 저장소에 연결할 수 없습니다."}, status=503)
+
+@login_required(login_url="/accounts/login/")
+@require_http_methods(["GET"])
+def report_view(request):
+    from .reporting import list_reports
+    try:
+        return render(request, "ads/reports.html", {"rows": list_reports(request.user.pk)})
+    except PyMongoError:
+        return render(request, "ads/reports.html", {
+            "rows": [], "message": "보고서를 읽을 수 없습니다."}, status=503)

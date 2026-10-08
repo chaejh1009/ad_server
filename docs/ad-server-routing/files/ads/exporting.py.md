@@ -4,7 +4,7 @@
 
 ## 책임과 경계
 
-Mongo의 ad_events를 공개 필드만 갖는 NDJSON으로 내보내고, NDJSON 읽기·쓰기와 SHA-256 계산을 제공한다. HTTP 경로는 없다. [export_ad_events 명령](management/commands/export_ad_events.py.md)이 호출한다.
+Mongo의 ad_events를 공개 필드만 갖는 NDJSON으로 내보내고, NDJSON 읽기·쓰기와 SHA-256 계산을 제공한다. HTTP 경로는 없다. [export_ad_events 명령](management/commands/export_ad_events.py.md)이 내보내기를 호출한다. [delivery](delivery.py.md)는 공개 필드와 읽기·쓰기를 재사용하고, build_ad_reports·load_ad_reports·check_ad_reports는 NDJSON 유틸리티를 사용한다.
 
 ## `def read_ndjson(path)`
 

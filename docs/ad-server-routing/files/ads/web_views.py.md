@@ -4,11 +4,11 @@
 
 ## 책임과 경계
 
-광고주 세션으로 캠페인·입찰을 편집하고 자신의 최근 결정·사건을 HTML로 읽는다.
+광고주 세션으로 캠페인·입찰을 편집하고 자신의 최근 결정·사건과 게시된 일별 보고서를 HTML로 읽는다.
 
 ## 호출자와 직접 의존
 
-ads.urls의 advertiser/campaigns·bids·events 경로(최상위 두 include 접두어 모두).
+ads.urls의 advertiser/campaigns·bids·events·reports 경로(최상위 두 include 접두어 모두).
 
 관련 문서: [ads/services.py](services.py.md), [ads/mongo.py](mongo.py.md), [ads/urls.py](urls.py.md).
 
@@ -36,6 +36,14 @@ Signature: `def event_view(request)` · 소스 65행.
 2. **직접 호출:** get_db().decisions.find(...).sort("selected_at", -1).limit(30) → 각 결정의 ad_events.find_one(결정ID:impression)·find_one(결정ID:click) → render("ads/events.html", ...).
 3. **반환·상태:** 행에는 decision_id·campaign_id·bid_amount·selected_at·snapshot_ready·impression·click이 있다. 표시값은 chosen 필드가 없으면 campaign_id/bid_units로 fallback한다. 정상 200, PyMongoError 503. snapshot_ready는 chosen_campaign_id의 bool만 확인하므로 events 서비스의 전체 후보 검증과 같지 않다. 소유자 필드 없는 과거 결정은 조회 결과에 들어오지 않는다.
 
+## `def report_view(request)`
+
+Signature: `def report_view(request)`
+
+1. **검증·변환:** 로그인 세션과 GET만 허용한다. request.user.pk를 조회 소유자로 사용한다.
+2. **직접 호출:** 함수 내부에서 reporting.list_reports import → list_reports(request.user.pk) → render("ads/reports.html", {rows}). [보고서 조회 계약](reporting.py.md)을 따른다.
+3. **반환·상태:** 정상 200 HTML, PyMongoError는 rows=[]·message="보고서를 읽을 수 없습니다."와 503 HTML이다. 화면 요청은 집계·게시를 실행하지 않는다.
+
 ## 실적 화면의 조회 계약
 
 `event_view`는 `ads/events.html`에 `rows`를 전달한다. 각 결정마다 impression과 click 문서를 각각 한 번 조회하므로 최근 결정 수가 N이면 decisions 조회 한 번과 사건 조회 2N번을 수행한다. 최근 30개 제한은 사건 수가 아니라 결정 수에 적용된다.
@@ -44,4 +52,4 @@ Signature: `def event_view(request)` · 소스 65행.
 
 ## 현재 구현에서 확인할 점
 
-세 view의 login_required는 /accounts/login/로 redirect한다. HTML POST는 CSRF 미들웨어를 통과해야 한다. 현재 report_view는 없다. events.html의 일별 보고서 링크 `/advertiser/reports/`는 URLconf에 등록되지 않아 404다.
+네 view의 login_required는 /accounts/login/로 redirect한다. HTML POST는 CSRF 미들웨어를 통과해야 한다. events.html의 일별 보고서 링크 `/advertiser/reports/`는 report_view로 연결된다.

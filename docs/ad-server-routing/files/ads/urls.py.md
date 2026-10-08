@@ -14,4 +14,4 @@
 
 ## 모듈 실행과 값 계약
 
-`app_name="ads"`. `advertiser/campaigns/` → `web_views.campaign_view`, `advertiser/bids/` → `web_views.bid_view`, `advertiser/events/` → `web_views.event_view`. `campaigns/` → `views.campaigns`, `bids/` → `views.bids`. 각 항목은 두 include 접두어에 대해 모두 살아 있다. 직접 정의한 함수·클래스는 없다. 현재 reports/export/context 경로는 등록되어 있지 않다.
+`app_name="ads"`. `advertiser/campaigns/` → `web_views.campaign_view`, `advertiser/bids/` → `web_views.bid_view`, `advertiser/events/` → `web_views.event_view`. `advertiser/reports/` → `web_views.report_view` (name="web-reports"). `campaigns/` → `views.campaigns`, `bids/` → `views.bids`. 각 항목은 두 include 접두어에 대해 모두 살아 있다. 직접 정의한 함수·클래스는 없다. export/context 경로는 등록되어 있지 않다.

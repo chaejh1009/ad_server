@@ -4,7 +4,7 @@
 
 ## 범위
 
-직접 유지보수하는 런타임 Python 전체가 대상이다. 프로젝트 루트 상대경로를 유지하여 `files/<프로젝트 상대경로>.md`와 정확히 하나씩 대응시켰다. 현재 대상은 **23파일·42개 top-level 함수/클래스 기호·4개 직접 정의한 클래스 메서드**다. signature는 `python-routing-diff-audit/scripts/audit_routing.py`의 `inventory()` 출력과 일치한다.
+직접 유지보수하는 런타임 Python 전체가 대상이다. 프로젝트 루트 상대경로를 유지하여 `files/<프로젝트 상대경로>.md`와 정확히 하나씩 대응시켰다. 현재 대상은 **27파일·48개 top-level 함수/클래스 기호·10개 직접 정의한 클래스 메서드**다. signature는 `python-routing-diff-audit/scripts/audit_routing.py`의 `inventory()` 출력과 일치한다.
 
 | 실제 파일 | 라우팅 문서 | 책임 |
 |---|---|---|
@@ -25,16 +25,20 @@
 | `ads/services.py` | [`files/ads/services.py.md`](files/ads/services.py.md) | 공개 식별자·입력 검증, 광고주 캠페인·입찰 유스케이스, 후보 순위와 결정 스냅샷 생성을 소유한다. |
 | `ads/urls.py` | [`files/ads/urls.py.md`](files/ads/urls.py.md) | 광고주 HTML 화면과 세션 JSON 관리 API의 앱 상대 경로를 등록한다. |
 | `ads/views.py` | [`files/ads/views.py.md`](files/ads/views.py.md) | 광고주 세션 JSON API와 매체 서버 JSON API를 서비스 함수에 연결한다. |
-| `ads/web_views.py` | [`files/ads/web_views.py.md`](files/ads/web_views.py.md) | 광고주 세션으로 캠페인·입찰을 편집하고 자신의 최근 결정·사건을 HTML로 읽는다. |
+| `ads/web_views.py` | [`files/ads/web_views.py.md`](files/ads/web_views.py.md) | 광고주 세션으로 캠페인·입찰을 편집하고 자신의 최근 결정·사건·게시된 일별 보고서를 HTML로 읽는다. |
 | `ads/exporting.py` | [`files/ads/exporting.py.md`](files/ads/exporting.py.md) | 사건 NDJSON 내보내기·읽기·쓰기와 SHA-256 계산 |
-| `ads/reporting.py` | [`files/ads/reporting.py.md`](files/ads/reporting.py.md) | 보고서 행의 업무 키 검증·Mongo 게시·소유자별 조회 |
+| `ads/reporting.py` | [`files/ads/reporting.py.md`](files/ads/reporting.py.md) | 서울 노출일별 사건 집계·보고서 업무 키 검증·Mongo 게시·소유자별 조회 |
 | `ads/timestamps.py` | [`files/ads/timestamps.py.md`](files/ads/timestamps.py.md) | 시간대가 있는 ISO 시각의 UTC 정규화 |
 | `ads/management/commands/export_ad_events.py` | [`files/ads/management/commands/export_ad_events.py.md`](files/ads/management/commands/export_ad_events.py.md) | 사건 내보내기 CLI 옵션과 메타데이터 출력 |
-| `ads/management/commands/build_ad_reports.py` | [`files/ads/management/commands/build_ad_reports.py.md`](files/ads/management/commands/build_ad_reports.py.md) | 보고서 후보 생성 CLI; 현재 미정의 함수 import로 로딩 실패 |
+| `ads/management/commands/build_ad_reports.py` | [`files/ads/management/commands/build_ad_reports.py.md`](files/ads/management/commands/build_ad_reports.py.md) | 고정 사건 파일에서 일별 보고서 후보 생성 CLI |
+| `ads/delivery.py` | [`files/ads/delivery.py.md`](files/ads/delivery.py.md) | 미전달 사건의 로컬 NDJSON 교체·Mongo 전달 표식 갱신 |
+| `ads/management/commands/deliver_ad_events.py` | [`files/ads/management/commands/deliver_ad_events.py.md`](files/ads/management/commands/deliver_ad_events.py.md) | 로컬 사건 전달 CLI |
+| `ads/management/commands/load_ad_reports.py` | [`files/ads/management/commands/load_ad_reports.py.md`](files/ads/management/commands/load_ad_reports.py.md) | 후보 보고서의 업무 키별 Mongo 게시 CLI |
+| `ads/management/commands/check_ad_reports.py` | [`files/ads/management/commands/check_ad_reports.py.md`](files/ads/management/commands/check_ad_reports.py.md) | 전체 고정 사건과 게시 보고서 대조·JSON 증거 저장 CLI |
 
 `ads/tests.py` 등 테스트, `ads/migrations/**`, 내용이 없는 `__init__.py`는 실행 호출 문서 대상에서 제외한다. `ads/admin.py`·`ads/models.py`는 현재 import/주석뿐이어도 Django 앱의 런타임 모듈이므로 포함한다. `.venv`·`__pycache__`·SQLite DB·`.env`·로그·이미지 등 생성/비밀/비Python 파일도 제외한다. 템플릿·정적 이미지의 소비 경로는 담당 view/settings 문서에 기록한다.
 
-현재 exporting·timestamps·reporting 및 export_ad_events·build_ad_reports 관리 명령 파일이 존재한다. build_ad_reports는 미정의 build_daily_reports import로 실행되지 않는다. delivery 모듈·보고서 HTTP 경로·게시 명령은 없다. 직접 정의한 함수가 없는 설정·URL·ASGI/WSGI 모듈도 범위에서 빠지지 않는다.
+현재 사건 내보내기·파일 전달·일별 집계·게시·대조 명령과 보고서 HTTP 조회가 연결되어 있다. 직접 정의한 함수가 없는 설정·URL·ASGI/WSGI 모듈도 범위에서 빠지지 않는다.
 
 ## 계층별 호출 구조
 
@@ -60,6 +64,8 @@ ad_config.urls
            -> campaigns 조회 및 repository -> mongo.get_db
      -> advertiser/events -> web_views.event_view
         -> mongo.get_db -> decisions + ad_events 읽기
+     -> advertiser/reports -> web_views.report_view
+        -> reporting.list_reports -> mongo.get_db -> ad_daily_reports 읽기
      -> campaigns|bids -> views.api_methods -> views.campaigns/bids
         -> views.read_json 및 services -> repository -> mongo.get_db
   -> api/media/ -> ads.media_urls
@@ -79,12 +85,17 @@ Django 관리 명령
      -> mongo.get_db -> ad_events 읽기
      -> timestamps.parse_utc -> impression_time 범위 필터
      -> exporting.write_ndjson -> NDJSON + SHA-256
-  -> build_ad_reports : reporting.build_daily_reports import 실패
-     (미정의 함수 구현 후 의도된 흐름: read_ndjson -> 집계 -> write_ndjson)
-
-직접 서비스 호출(현재 HTTP/명령 호출자 없음)
-  -> reporting.publish_reports -> ad_daily_reports.replace_one
-  -> reporting.list_reports -> ad_daily_reports.find
+  -> deliver_ad_events.Command.handle -> delivery.deliver_events
+     -> mongo.get_db -> 표식 없는 ad_events 읽기
+     -> exporting.read_ndjson/write_ndjson -> 임시 파일 교체
+     -> ad_events.update_one(file_delivered_at)
+  -> build_ad_reports.Command.handle
+     -> exporting.read_ndjson -> reporting.build_daily_reports -> exporting.write_ndjson
+  -> load_ad_reports.Command.handle
+     -> exporting.read_ndjson -> reporting.publish_reports -> ad_daily_reports.replace_one
+  -> check_ad_reports.Command.handle
+     -> exporting.read_ndjson -> reporting.build_daily_reports
+     -> mongo.get_db -> ad_daily_reports 전체 읽기 -> 키·집계값 대조 -> JSON 증거 저장
 
 mongo.get_db -> 캐시된 mongo.get_client -> MongoClient 연결 풀
 ```
@@ -106,6 +117,7 @@ Django 기본 인증·세션은 SQLite를 사용하고 광고 문서는 MongoDB�
 | GET·POST | `/advertiser/campaigns/`, `/api/ads/advertiser/campaigns/` | `web_views.campaign_view` | 광고주 세션·POST CSRF → HTML |
 | GET·POST | `/advertiser/bids/`, `/api/ads/advertiser/bids/` | `web_views.bid_view` | 광고주 세션·POST CSRF → HTML |
 | GET | `/advertiser/events/`, `/api/ads/advertiser/events/` | `web_views.event_view` | 광고주 세션 → 본인 최근 결정·사건 HTML |
+| GET | `/advertiser/reports/`, `/api/ads/advertiser/reports/` | `web_views.report_view` | 광고주 세션 → 본인 게시 일별 보고서 HTML |
 | GET·POST | `/campaigns/`, `/api/ads/campaigns/` | `views.campaigns` | 광고주 세션·POST CSRF/application/json → JSON |
 | GET·POST | `/bids/`, `/api/ads/bids/` | `views.bids` | 광고주 세션·POST CSRF/application/json → JSON |
 | POST | `/api/media/decision/` | `views.decision` | X-Media-ID·X-Media-Key, subject/context → 광고 선택 JSON |
@@ -130,19 +142,23 @@ Django form view가 처리하는 HEAD/OPTIONS 등 프레임워크 동작은 별�
 | campaigns | `_id=campaign_id`, `owner_user_id` | repository upsert·목록, services 검증 |
 | bids | `_id=bid_id=campaign_id`, `owner_user_id` | repository upsert·목록, services의 활성 소유 캠페인 검사 |
 | decisions | UUID 문자열 `_id`, `subject`, 선택 후보 소유자 | choose_ad가 응답·후보·선택 시점 금액/context를 새 문서로 저장 |
-| ad_events | `_id=decision_id:event_type`, `subject`, 당시 후보 소유자 | record_ad_event의 setOnInsert, 웹은 본인 decisions를 통해 조회 |
-| ad_daily_reports | JSON 배열 문자열 `[owner_user_id,campaign_id,slot_id,date]`를 `_id`로 사용 | reporting의 replace upsert·소유자별 조회; 현재 HTTP/게시 명령 없음 |
+| ad_events | `_id=decision_id:event_type`, `subject`, 당시 후보 소유자 | record_ad_event의 setOnInsert, 웹은 본인 decisions를 통해 조회; delivery가 file_delivered_at 갱신 |
+| ad_daily_reports | JSON 배열 문자열 `[owner_user_id,campaign_id,slot_id,date]`를 `_id`로 사용 | load_ad_reports → reporting의 replace upsert; report_view → 소유자별 조회 |
 | orders | save_bid_document의 반환 조회에만 등장 | 현재 저장 컬렉션 bids와 불일치하며 아래 확인 사항 참조 |
 
 결정 스냅샷의 `owner_user_id`는 광고주 실적 화면의 조회 범위를 정한다. 사건 저장은 `chosen_campaign_id`와 일치하는 candidates 항목의 `owner_user_id`·`bid_amount`를 사용한다. 최상위 `chosen_bid_amount`만 있는 과거 결정은 후보 검증을 통과하지 못할 수 있다. 필드별 계약은 [services](files/ads/services.py.md), 오류·재전송 조건은 [events](files/ads/events.py.md)에 기록한다.
 
-실적 화면은 본인 최근 결정 30개를 읽고 각 결정의 impression·click을 각각 조회한다. 사건을 새로 만들거나 집계하지 않는다. 조회 횟수와 오류 시 템플릿 계약은 [web_views](files/ads/web_views.py.md)를 따른다.
+사건 실적 화면은 본인 최근 결정 30개를 읽고 각 결정의 impression·click을 각각 조회한다. 사건을 새로 만들거나 집계하지 않는다. 일별 보고서 화면은 ad_daily_reports의 본인 행을 날짜 내림차순으로 조회한다. 조회 횟수와 오류 시 템플릿 계약은 [web_views](files/ads/web_views.py.md)를 따른다.
 
 ## 관리 명령과 파일 계약
 
 - `python ad_config/manage.py export_ad_events --output data/ad-events.ndjson [--since ISO시각] [--until ISO시각]`: 시간대가 있는 경계를 UTC로 정규화한다. 사건의 **impression_time**으로 [since, until)을 판단하고, event_time·event_id 순서로 정렬해 공개 12필드만 쓴다. 파일은 덮어쓰며 메타데이터(path·rows·sha256·schema_version·source_kind·since·until)는 표준 출력한다. [상세 계약](files/ads/exporting.py.md).
-- `build_ad_reports --source … --output …` 파일은 존재하나 현재 ImportError로 로딩되지 않는다. 보고서 계산 함수와 게시 명령은 구현되지 않았다. [명령 문서](files/ads/management/commands/build_ad_reports.py.md).
-- 실적 템플릿의 `/advertiser/reports/` 링크에 대응하는 URL/view는 없어 404다. 현재 조회 화면은 `/advertiser/events/`만 제공한다.
+- `python ad_config/manage.py deliver_ad_events --output data/ad-events.ndjson [--limit 100]`: 표식 없는 사건을 기존 파일과 ID별 병합하고 임시 파일 교체 후 file_delivered_at을 기록한다. 한 writer를 전제로 하며 파일과 Mongo는 별도 저장 단계다. [전달 계약](files/ads/delivery.py.md).
+- `python ad_config/manage.py build_ad_reports --source data/ad-events.ndjson --output data/ad-reports.ndjson`: 중복 사건 제거·클릭의 선행 노출 검증 후 서울 노출일 기준 후보를 만든다. 같은 ID의 내용 충돌은 거절한다. Mongo에 게시하지 않는다. [집계 계약](files/ads/reporting.py.md).
+- `python ad_config/manage.py load_ad_reports --source data/ad-reports.ndjson`: 업무 키별 replace upsert 후 published=처리행수를 출력한다. 입력에 없는 기존 행은 유지한다. [게시 명령](files/ads/management/commands/load_ad_reports.py.md).
+- `python ad_config/manage.py check_ad_reports --source data/ad-events.ndjson --output data/ad-report-check.json`: 전체 고정 입력의 재집계와 전체 게시 보고서의 키·5개 값 필드를 비교한다. JSON 증거를 저장한 뒤 불일치 시 실패 종료한다. 부분 입력은 다른 날짜 게시 행을 extra로 판정할 수 있다. [대조 계약](files/ads/management/commands/check_ad_reports.py.md).
+- `/advertiser/reports/`는 로그인한 광고주의 게시된 보고서를 읽는다. 방문 시 집계·게시를 실행하지 않는다.
+
 
 ## 현재 구현에서 점검할 문제
 
@@ -151,7 +167,7 @@ Django form view가 처리하는 HEAD/OPTIONS 등 프레임워크 동작은 별�
 3. settings의 SECRET_KEY·ALLOWED_HOSTS는 뒤쪽 값에 덮어쓰인다. DEBUG=True이며 비밀값 자체는 문서에 복제하지 않는다.
 4. `ads.urls`가 같은 namespace로 두 번 포함된다. 광고주 HTML 경로에도 `/api/ads/` 별칭이 생기며 URL 이름 역참조 중복을 점검해야 한다.
 5. 웹 `snapshot_ready`는 chosen_campaign_id 존재만 판정한다. 사건 함수는 후보 소유자·금액까지 검사하므로 웹 표시만으로 사건 저장 가능성을 확정할 수 없다. owner_user_id가 없는 과거 결정은 본인 결정 목록에도 나오지 않는다.
-6. build_ad_reports가 import하는 build_daily_reports가 reporting에 없어 명령 로딩이 실패한다. reports 화면 링크도 아직 등록되지 않은 경로다.
+6. 파일 전달은 파일 교체 후 Mongo 표식을 쓰며 동시 writer를 조정하지 않는다. 표식이 있는 사건은 파일이 사라져도 재선택되지 않는다. 보고서 게시는 행별 저장이며 입력에 없는 기존 행은 유지한다.
 7. 현재 tests.py는 기본 골격이다. 이 문서는 정적 호출/시그니처 문서이며 실제 HTTP·Mongo 실행 성공을 증명하는 테스트 결과가 아니다.
 
 ## 문서 갱신 규칙
@@ -164,4 +180,4 @@ Django form view가 처리하는 HEAD/OPTIONS 등 프레임워크 동작은 별�
 
 ## 이번 점검 결과
 
-2026-10-07 기준 `manage.py check`는 성공 종료했으며 기존 `urls.W005` 경고 1건이 남는다. `manage.py help export_ad_events`는 정상 로딩되었다. `manage.py help build_ad_reports`는 미정의 build_daily_reports ImportError로 실패했다. AST 감사로 변경 기호의 시그니처·파일별 문서 대응을 확인했다. 실제 Mongo 사건 저장·내보내기와 게임 연동 실행은 이번 점검에 포함하지 않았다.
+2026-10-08 기준 `manage.py check`는 성공 종료했으며 기존 `urls.W005` 경고 1건이 남는다. `manage.py help build_ad_reports`·`deliver_ad_events`·`load_ad_reports`·`check_ad_reports`는 모두 정상 로딩되었다. AST 감사로 변경 기호의 시그니처·파일별 문서 대응을 확인했다. 감사 도구의 루트 경로 처리와 미추적 파일 diff 누락은 임시 추출기에서 보완했다. 실제 Mongo 전달·게시·대조와 브라우저 화면 실행은 이번 점검에 포함하지 않았다.
