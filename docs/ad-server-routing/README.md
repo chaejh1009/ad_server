@@ -4,7 +4,7 @@
 
 ## 범위
 
-직접 유지보수하는 런타임 Python 전체가 대상이다. 프로젝트 루트 상대경로를 유지하여 `files/<프로젝트 상대경로>.md`와 정확히 하나씩 대응시켰다. 현재 대상은 **27파일·48개 top-level 함수/클래스 기호·10개 직접 정의한 클래스 메서드**다. signature는 `python-routing-diff-audit/scripts/audit_routing.py`의 `inventory()` 출력과 일치한다.
+직접 유지보수하는 런타임 Python 전체가 대상이다. 프로젝트 루트 상대경로를 유지하여 `files/<프로젝트 상대경로>.md`와 정확히 하나씩 대응시켰다. 현재 대상은 **29파일·52개 top-level 함수/클래스 기호·12개 직접 정의한 클래스 메서드**다. signature는 `python-routing-diff-audit/scripts/audit_routing.py`의 `inventory()` 출력과 일치한다.
 
 | 실제 파일 | 라우팅 문서 | 책임 |
 |---|---|---|
@@ -35,6 +35,9 @@
 | `ads/management/commands/deliver_ad_events.py` | [`files/ads/management/commands/deliver_ad_events.py.md`](files/ads/management/commands/deliver_ad_events.py.md) | 로컬 사건 전달 CLI |
 | `ads/management/commands/load_ad_reports.py` | [`files/ads/management/commands/load_ad_reports.py.md`](files/ads/management/commands/load_ad_reports.py.md) | 후보 보고서의 업무 키별 Mongo 게시 CLI |
 | `ads/management/commands/check_ad_reports.py` | [`files/ads/management/commands/check_ad_reports.py.md`](files/ads/management/commands/check_ad_reports.py.md) | 전체 고정 사건과 게시 보고서 대조·JSON 증거 저장 CLI |
+
+| `ads/snapshot_intake.py` | [`files/ads/snapshot_intake.py.md`](files/ads/snapshot_intake.py.md) | 동결 플레이어 공개 스냅샷 필드·출처·수집 시각 검사와 체크섬 계산 |
+| `ads/management/commands/inspect_player_snapshot.py` | [`files/ads/management/commands/inspect_player_snapshot.py.md`](files/ads/management/commands/inspect_player_snapshot.py.md) | 플레이어 스냅샷 검사·JSON 요약 CLI |
 
 `ads/tests.py` 등 테스트, `ads/migrations/**`, 내용이 없는 `__init__.py`는 실행 호출 문서 대상에서 제외한다. `ads/admin.py`·`ads/models.py`는 현재 import/주석뿐이어도 Django 앱의 런타임 모듈이므로 포함한다. `.venv`·`__pycache__`·SQLite DB·`.env`·로그·이미지 등 생성/비밀/비Python 파일도 제외한다. 템플릿·정적 이미지의 소비 경로는 담당 view/settings 문서에 기록한다.
 
@@ -96,6 +99,9 @@ Django 관리 명령
   -> check_ad_reports.Command.handle
      -> exporting.read_ndjson -> reporting.build_daily_reports
      -> mongo.get_db -> ad_daily_reports 전체 읽기 -> 키·집계값 대조 -> JSON 증거 저장
+  -> inspect_player_snapshot.Command.handle -> snapshot_intake.inspect_snapshot
+     -> _read_snapshot -> NDJSON 바이트 읽기 + SHA-256
+     -> _check_public_state + timestamps.parse_utc -> JSON 요약 표준 출력
 
 mongo.get_db -> 캐시된 mongo.get_client -> MongoClient 연결 풀
 ```
@@ -160,6 +166,8 @@ Django form view가 처리하는 HEAD/OPTIONS 등 프레임워크 동작은 별�
 - `/advertiser/reports/`는 로그인한 광고주의 게시된 보고서를 읽는다. 방문 시 집계·게시를 실행하지 않는다.
 
 
+- `python ad_config/manage.py inspect_player_snapshot --source data/player-snapshot.ndjson`: 공개 다섯 필드와 스키마·출처·수집 시각의 정확한 여덟 필드를 검사한다. ID 중복과 수집 시각 원본 값 불일치는 거절한다. 결과는 행 수·정렬된 공개 ID·수집 시각·원본 SHA-256 등의 JSON이다. 파일·DB를 수정하지 않는다. 입력 동결과 단일 작성자를 전제로 하며 잠금은 없다. [검사 계약](files/ads/snapshot_intake.py.md).
+
 ## 현재 구현에서 점검할 문제
 
 1. `repository.save_bid_document()`는 bids에 저장한 뒤 orders에서 반환 문서를 읽는다. 보통 None이어서 `views.bids`의 JsonResponse에서 TypeError/500이 날 수 있다. 저장된 입찰과 HTTP 성공을 구별한다. 웹은 목록을 다시 읽어 이 결함이 덜 드러난다.
@@ -180,4 +188,4 @@ Django form view가 처리하는 HEAD/OPTIONS 등 프레임워크 동작은 별�
 
 ## 이번 점검 결과
 
-2026-10-08 기준 `manage.py check`는 성공 종료했으며 기존 `urls.W005` 경고 1건이 남는다. `manage.py help build_ad_reports`·`deliver_ad_events`·`load_ad_reports`·`check_ad_reports`는 모두 정상 로딩되었다. AST 감사로 변경 기호의 시그니처·파일별 문서 대응을 확인했다. 감사 도구의 루트 경로 처리와 미추적 파일 diff 누락은 임시 추출기에서 보완했다. 실제 Mongo 전달·게시·대조와 브라우저 화면 실행은 이번 점검에 포함하지 않았다.
+2026-10-08 기준 `manage.py check`는 성공 종료했으며 기존 `urls.W005` 경고 1건이 남는다. `manage.py help build_ad_reports`·`deliver_ad_events`·`load_ad_reports`·`check_ad_reports`·`inspect_player_snapshot`는 모두 정상 로딩되었다. AST 감사로 변경 기호의 시그니처·파일별 문서 대응을 확인했다. 감사 도구의 루트 경로 처리와 미추적 파일 diff 누락은 임시 추출기에서 보완했다. 플레이어 스냅샷은 임시 고정 입력으로 정상·중복 ID·빈 입력 검사를 확인했다. 실제 Mongo 전달·게시·대조와 브라우저 화면 실행은 이번 점검에 포함하지 않았다.

@@ -20,10 +20,11 @@ ad_server/
 │   ├── services.py       # 검증과 광고 선택 정책
 │   ├── events.py         # 선택 스냅샷 기반 노출·클릭 기록
 │   ├── exporting.py      # 사건 NDJSON 입출력·내보내기
+│   ├── snapshot_intake.py # 동결 플레이어 공개 스냅샷 검사
 │   ├── timestamps.py     # ISO 시각 UTC 정규화
 │   ├── delivery.py       # 미전달 사건의 로컬 파일 전달·표식 갱신
 │   ├── reporting.py      # 서울 노출일별 집계·보고서 게시·조회
-│   ├── management/commands/ # 사건 내보내기·전달·보고서 생성·게시·대조
+│   ├── management/commands/ # 사건·보고서 명령과 플레이어 스냅샷 검사
 │   ├── repository.py     # 캠페인·입찰 저장 및 조회
 │   ├── mongo.py          # MongoDB 연결 풀
 │   ├── media_auth.py     # 매체 서버 인증
@@ -240,9 +241,27 @@ python ad_config/manage.py check_ad_reports \
 
 `check_ad_reports`는 누락·추가 키와 공통 키의 `impressions`, `clicks`, `ctr`, `bid_units_sum`, `source_max_event_time`을 대조합니다. `generated_at`은 비교하지 않습니다. 원본 SHA-256·행 수·고유 사건 수·차이 목록·`ok`를 JSON 파일과 표준 출력에 기록하고, 불일치하면 증거 저장 후 실패 종료합니다. 이 명령은 게시 데이터를 수정하지 않습니다.
 
+## 플레이어 공개 스냅샷 검사
+
+게임 서버에서 저장한 동결 NDJSON 파일을 검사합니다. 실행 중 입력 파일을 변경하지 않으며 단일 작성자를 전제로 합니다. 파일 잠금은 제공하지 않습니다.
+
+```bash
+python ad_config/manage.py inspect_player_snapshot --source data/player-snapshot.ndjson
+```
+
+각 행은 다음 여덟 필드만 갖는 JSON 객체입니다. 계정·좌표 등 추가 필드는 거절합니다.
+
+```json
+{"id":1,"room_id":"lobby","coins":100,"version":0,"updated_at":"2026-10-08T00:00:00+00:00","schema_version":"player-snapshot/v1","source_kind":"player-snapshot","captured_at":"2026-10-08T01:00:00+00:00"}
+```
+
+`id`는 양수 정수, `room_id`는 문자열, `coins`는 정수, `version`은 0 이상 정수입니다. 정수 필드에는 불리언을 허용하지 않습니다. `updated_at`과 `captured_at`은 시간대가 있는 시각이어야 합니다. 같은 ID는 내용이 같아도 중복을 거절하며, 모든 행의 `captured_at` 원본 값이 같아야 합니다.
+
+명령은 `rows`, 정렬된 `public_ids`, `source_kind`, `schema_version`, `captured_at`, 원본 바이트의 `sha256`을 JSON으로 표준 출력합니다. 빈 파일도 허용하며 수집 시각은 null입니다. 검증 실패는 오류로 종료합니다. 파일·DB를 수정하거나 광고 선택·보고서에 자동 반영하지 않습니다.
+
 ## 라우팅 문서
 
-[문서 안내](docs/README.md)와 [전체 라우팅](docs/ad-server-routing/README.md)에서 HTTP 경로, 계층별 호출 흐름, Mongo 문서 계약과 파일별 함수 시그니처를 확인할 수 있습니다. 현재 문서 범위는 런타임 Python 27파일, top-level 함수·클래스 48개, 직접 정의한 클래스 메서드 10개입니다.
+[문서 안내](docs/README.md)와 [전체 라우팅](docs/ad-server-routing/README.md)에서 HTTP 경로, 계층별 호출 흐름, Mongo 문서 계약과 파일별 함수 시그니처를 확인할 수 있습니다. 현재 문서 범위는 런타임 Python 29파일, top-level 함수·클래스 52개, 직접 정의한 클래스 메서드 12개입니다.
 
 ## 확인 및 현재 코드의 제한
 
@@ -253,6 +272,7 @@ python ad_config/manage.py help deliver_ad_events
 python ad_config/manage.py help build_ad_reports
 python ad_config/manage.py help load_ad_reports
 python ad_config/manage.py help check_ad_reports
+python ad_config/manage.py help inspect_player_snapshot
 ```
 
 현재 시스템 검사에서는 `ads` URL namespace 중복 경고(`urls.W005`)가 발생합니다. `ads.urls`가 루트와 `/api/ads/`에 함께 등록되어 있기 때문입니다.
@@ -263,4 +283,4 @@ python ad_config/manage.py help check_ad_reports
 - `repository.save_bid_document()`는 `bids`에 저장한 뒤 `orders` 컬렉션을 조회합니다. 따라서 입찰은 저장되어도 반환값이 `None`이 될 수 있으며, JSON 입찰 POST의 정상 응답 처리에 문제가 있습니다. 웹 입찰 화면은 저장 후 `bids` 목록을 다시 조회합니다.
 - 자동 테스트 파일은 기본 골격 상태입니다. 시스템 검사만으로 MongoDB 저장·조회나 게임 서버 연동이 검증되지는 않습니다.
 - 현재 범위는 캠페인·입찰 관리, 광고 선택 스냅샷, 노출·클릭 기록·조회, NDJSON 내보내기·전달, 일별 집계·게시·대조와 보고서 화면입니다. 과금·예산 차감은 구현되어 있지 않습니다.
-- 2026-10-08 점검에서 시스템 검사는 기존 namespace 경고 1건과 함께 성공했고 사건 전달·보고서 생성·게시·대조 명령 help가 정상 로딩되었습니다. 실제 Mongo 전달·게시·대조와 브라우저·게임 연동 실행은 이번 점검에 포함하지 않았습니다.
+- 2026-10-08 점검에서 시스템 검사는 기존 namespace 경고 1건과 함께 성공했고 사건 전달·보고서 생성·게시·대조와 플레이어 스냅샷 검사 명령 help가 정상 로딩되었습니다. 플레이어 스냅샷 검사는 임시 입력으로 정상·중복 ID·빈 파일을 확인했습니다. 실제 Mongo 전달·게시·대조와 브라우저·게임 연동 실행은 이번 점검에 포함하지 않았습니다.
