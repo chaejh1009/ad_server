@@ -7,6 +7,10 @@ from .media_auth import media_api_methods
 from . import services
 from .events import record_ad_event
 
+from .context_projection import get_context
+
+
+
 
 
 # 로그인·허용 HTTP 메서드를 검사하고 입력 오류는 400, 저장소 오류는 503으로 응답한다.
@@ -83,5 +87,13 @@ def event(request):
         request.media_body.get("event_type"),
     )
     response = JsonResponse(result)
+    response["Cache-Control"] = "no-store"
+    return response
+
+@media_api_methods("POST")
+def context_view(request):
+    subject = request.subject
+    response = JsonResponse({"subject": subject,
+                             "context": get_context(subject["media_id"], subject["subject_id"])})
     response["Cache-Control"] = "no-store"
     return response

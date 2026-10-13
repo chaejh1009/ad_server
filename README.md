@@ -285,7 +285,7 @@ python ad_config/manage.py write_player_change_fixture --output data/player-chan
 
 비교 결과는 `changed`, `newly_seen`, `missing_unknown`입니다. `changed`는 같은 ID의 `room_id`, `coins`, `version`, UTC로 정규화한 `updated_at`을 비교합니다. 누락 기록의 `unknown`은 이전 파일에만 있는 정렬된 ID이며 `delete_events=[]`, `delete_inference_allowed=false`로 기록합니다. 파일에서 사라졌다는 이유로 삭제 사건을 만들지 않습니다. 교육 fixture는 `teaching-fixture` 출처의 고정 `r/u/d` 세 행입니다.
 
-원본과 수신용 계약을 새 폴더로 인계하고 첫 행의 정규화 결과를 확인합니다. 아래 `game-player-contract.json`은 원본 검사 결과와 `artifact_id="data/exports/player-cdc.ndjson"`, `public_fields` 등을 갖는 별도 계약입니다. 현재 `write_snapshot_contract`는 `artifact_id="game_server/data/exports/player-cdc.ndjson"`와 단수 키 `public_field`를 생성하므로 그 출력을 그대로 인계·미리보기 입력에 사용하면 거절됩니다.
+원본과 계약을 새 폴더로 인계하고 첫 행의 정규화 결과를 확인합니다. `write_snapshot_contract`는 현재 소비 함수와 같은 `artifact_id="data/exports/player-cdc.ndjson"`와 `public_fields`를 생성하므로 생성한 계약을 그대로 인계할 수 있습니다. 아래 `game-player-contract.json`은 이 명령으로 원본에 맞춰 생성한 계약입니다.
 
 ```bash
 python ad_config/manage.py handoff_player_snapshot --source data/player-snapshot.ndjson --contract data/game-player-contract.json --target data/received/player-v2
@@ -306,9 +306,23 @@ python ad_config/manage.py apply_player_context --source data/player-context.ndj
 
 검사 명령은 `(media_id, subject_id)` 고유 인덱스를 생성합니다. 반영 명령은 더 큰 version을 저장하고 같은 상태의 반복은 `duplicate`, 낮은 version은 `stale`로 처리합니다. 같은 version의 다른 상태는 오류입니다. `demo_context_versions --subject fixture-new-demo`는 새 학습 대상에 실제 저장을 수행하고 최종 삭제 표시 문서를 남깁니다. 저장 context를 광고 선택에 자동 주입하는 호출은 없습니다. [전체 호출·계약](docs/ad-server-routing/files/ads/context_projection.py.md)을 확인합니다.
 
+## 일괄 반영·갱신과 context 조회
+
+정규화 파일을 체크포인트와 함께 순서대로 반영합니다. `next_line`은 0-based 다음 처리 위치이며 입력 SHA가 달라지면 기존 체크포인트를 거절합니다. 현재 코드에서는 비어 있지 않은 입력에 `--checkpoint`를 생략하면 처리 위치가 전진하지 않아 종료되지 않으므로 아래처럼 지정합니다.
+
+```bash
+python ad_config/manage.py project_player_context --source data/player-context.ndjson --checkpoint data/context-checkpoint.json --limit 100
+python ad_config/manage.py refresh_player_context --source data/player-snapshot.ndjson --contract data/player-contract.json
+python ad_config/manage.py inspect_decision_context --subject 1 --latest
+```
+
+첫 명령을 반복하면 같은 파일의 다음 위치에서 재개합니다. 각 Mongo 반영 성공 후 체크포인트를 교체하며 두 저장은 별도 단계입니다. 갱신 명령은 새 스냅샷 전체를 버전 정책으로 반영하지만 누락 ID를 삭제하지 않습니다. 두 명령 모두 중간 오류 이전에 반영한 행은 남습니다. 비교 명령은 최신 선택 당시 context와 현재 공개 복사본의 차이를 읽기만 하며 `--decision-id ID`로 특정 결정을 지정할 수도 있습니다.
+
+`POST /api/media/context/`는 `X-Media-ID`·`X-Media-Key`와 JSON subject를 받아 현재 context를 반환합니다. 요청 예제는 [examples/context-request.json](examples/context-request.json)이며 결과는 `{"subject": {...}, "context": {...}}`입니다. 미저장·삭제 대상의 context는 `{}`이며 성공 응답에 `Cache-Control: no-store`가 설정됩니다. 인증 실패는 401, 입력 오류는 400, Mongo 오류는 503입니다. 광고 선택은 계속 요청에 포함된 context를 스냅샷으로 저장하며 이 조회를 자동 호출하지 않습니다.
+
 ## 라우팅 문서
 
-[문서 안내](docs/README.md)와 [전체 라우팅](docs/ad-server-routing/README.md)에서 HTTP·관리 명령 경로, 계층별 호출 흐름, Mongo·파일 계약과 파일별 함수 시그니처를 확인할 수 있습니다. 현재 문서 범위는 런타임 Python 42파일, top-level 함수·클래스 79개, 직접 정의한 클래스 메서드 35개입니다.
+[문서 안내](docs/README.md)와 [전체 라우팅](docs/ad-server-routing/README.md)에서 HTTP·관리 명령 경로, 계층별 호출 흐름, Mongo·파일 계약과 파일별 함수 시그니처를 확인할 수 있습니다. 현재 문서 범위는 런타임 Python 45파일, top-level 함수·클래스 88개, 직접 정의한 클래스 메서드 41개입니다.
 
 ## 확인 및 현재 코드의 제한
 
@@ -331,6 +345,9 @@ python ad_config/manage.py help normalize_player_snapshot
 python ad_config/manage.py help apply_player_context
 python ad_config/manage.py help inspect_player_context
 python ad_config/manage.py help demo_context_versions
+python ad_config/manage.py help project_player_context
+python ad_config/manage.py help refresh_player_context
+python ad_config/manage.py help inspect_decision_context
 ```
 
 현재 시스템 검사에서는 `ads` URL namespace 중복 경고(`urls.W005`)가 발생합니다. `ads.urls`가 루트와 `/api/ads/`에 함께 등록되어 있기 때문입니다.
@@ -340,8 +357,7 @@ python ad_config/manage.py help demo_context_versions
 - `settings.py`에서 환경변수로 읽은 `SECRET_KEY`를 뒤쪽의 개발용 고정 키가 덮어씁니다. `DEBUG=True`이며 `ALLOWED_HOSTS`도 뒤에서 빈 목록으로 재설정됩니다. 운영 배포 전 설정 정리가 필요합니다.
 - `repository.save_bid_document()`는 `bids`에 저장한 뒤 `orders` 컬렉션을 조회합니다. 따라서 입찰은 저장되어도 반환값이 `None`이 될 수 있으며, JSON 입찰 POST의 정상 응답 처리에 문제가 있습니다. 웹 입찰 화면은 저장 후 `bids` 목록을 다시 조회합니다.
 - 자동 테스트 파일은 기본 골격 상태입니다. 시스템 검사만으로 MongoDB 저장·조회나 게임 서버 연동이 검증되지는 않습니다.
-- 현재 범위는 캠페인·입찰 관리, 광고 선택 스냅샷, 노출·클릭 기록·조회, NDJSON 내보내기·전달, 일별 집계·게시·대조와 보고서 화면, 플레이어 공개 스냅샷 검사·비교·누락 기록·계약 생성·폴더 인계·정규화 미리보기·교육 fixture·CDC 준비 기록과 전체 context 정규화 파일 생성·최신 상태 반영/조회·버전 데모입니다. 과금·예산 차감은 구현되어 있지 않습니다.
-- 계약 생성 명령과 인계·미리보기의 `artifact_id`·공개 필드 키가 다릅니다. 인계는 Python 값 비교, 미리보기는 JSON 표현 비교를 사용하므로 일부 타입을 구별하는 정도에도 차이가 있습니다. [스냅샷 계약 상세](docs/ad-server-routing/files/ads/snapshot_intake.py.md)와 [정규화 상세](docs/ad-server-routing/files/ads/context_projection.py.md)를 확인합니다.
+- 현재 범위는 캠페인·입찰 관리, 광고 선택 스냅샷, 노출·클릭 기록·조회, NDJSON 내보내기·전달, 일별 집계·게시·대조와 보고서 화면, 플레이어 공개 스냅샷 검사·비교·누락 기록·계약 생성·폴더 인계·정규화 미리보기·교육 fixture·CDC 준비 기록과 전체 context 정규화 파일 생성·최신 상태 반영/조회·버전 데모·체크포인트 일괄 반영·스냅샷 갱신·선택 context 비교입니다. 과금·예산 차감은 구현되어 있지 않습니다.
 - 2026-10-12 문서 갱신에서 시스템 검사는 기존 namespace 경고 1건과 함께 성공했고 관리 명령 13개의 help가 정상 로딩되었습니다. 런타임 37파일·94개 기호의 문서 대응·시그니처·헤딩·링크를 확인했으며 변경사항 감사의 누락·인수 구조 불일치는 0건입니다. 임시 파일·CLI와 오류 분기 검사 47건에서 계약 불일치 거절·조건을 맞춘 인계와 미리보기·비교와 누락 기록·정규화 해시·출력 계약을 확인했습니다. 실제 동시 writer·MySQL/CDC·Mongo·브라우저·게임 연동 실행은 이번 문서 갱신에 포함하지 않았습니다.
 
-2026-10-13 라우팅 갱신에서는 런타임 42파일·114개 기호의 문서 대응·시그니처·로컬 링크와 새 관리 명령 4개의 help를 확인했습니다. 시스템 검사에는 기존 `urls.W005` 경고가 남습니다. Mongo 반영·인덱스 생성·데모는 실행하지 않았습니다.
+직전 커밋 `6a75121` 이후 갱신에서는 런타임 45파일·129개 기호의 문서 대응·시그니처·링크와 새 관리 명령 3개의 help를 확인했습니다. 계약 생성/소비 필드를 일치시킨 변경과 현재 context API, 체크포인트 생략 시 반복 처리되는 제한을 반영했습니다. Django 검사에는 기존 `urls.W005` 경고 1건이 남으며 실제 Mongo·HTTP 연동은 실행하지 않았습니다.

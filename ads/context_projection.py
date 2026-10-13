@@ -245,3 +245,131 @@ def get_context(media_id, subject_id):
     key = context_subject_key(media_id, subject_id)
     row = get_db().player_context.find_one({"_id": key})
     return dict(row["context"]) if row and not row["deleted"] else {}
+
+def _read_context_changes(source):
+    """같은 bytes에서 SHA와 검증한 정규화 행을 함께 얻는다."""
+    payload = Path(source).read_bytes()
+    rows = []
+    for number, line in enumerate(payload.splitlines(), 1):
+        if not line.strip():
+            raise ValueError(f"빈 행 {number}")
+        row = json.loads(line.decode("utf-8"))
+        make_context_document(row)
+        rows.append(row)
+    return rows, hashlib.sha256(payload).hexdigest()
+
+
+def _read_context_checkpoint(checkpoint, checksum, row_count):
+    state = json.loads(Path(checkpoint).read_text(encoding="utf-8"))
+    fields = {"schema_version", "source_sha256", "next_line"}
+    if not isinstance(state, dict) or set(state) != fields:
+        raise ValueError("checkpoint는 정해진 3개 필드만 받습니다.")
+    if state["schema_version"] != "context-checkpoint/v1":
+        raise ValueError("checkpoint 버전이 다릅니다.")
+    digest = state["source_sha256"]
+    if (not isinstance(digest, str) or len(digest) != 64
+            or any(char not in "0123456789abcdef" for char in digest)):
+        raise ValueError("checkpoint의 source_sha256이 잘못되었습니다.")
+    if digest != checksum:
+        raise ValueError("입력 파일이 바뀌었습니다. 새 checkpoint를 사용하세요.")
+    position = state["next_line"]
+    if type(position) is not int or not 0 <= position <= row_count:
+        raise ValueError("checkpoint의 다음 행이 잘못되었습니다.")
+    return position
+
+
+def _save_context_checkpoint(checkpoint, checksum, position):
+    """완성된 임시 파일로만 위치 기록을 교체한다."""
+    target = Path(checkpoint)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    state = {"schema_version": "context-checkpoint/v1",
+             "source_sha256": checksum, "next_line": position}
+    with tempfile.TemporaryDirectory(prefix=".checkpoint-", dir=target.parent) as folder:
+        staged = Path(folder) / "state.json"
+        staged.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
+        os.replace(staged, target)
+    return state
+
+def project_context_file(source_path, checkpoint_path=None, limit=None):
+    if limit is not None and (type(limit) is not int or limit < 1):
+        raise ValueError("limit은 양수 정수입니다.")
+    source = Path(source_path)
+    if checkpoint_path is not None and not str(checkpoint_path).strip():
+        raise ValueError("checkpoint 경로는 비어 있지 않아야 합니다.")
+    checkpoint = Path(checkpoint_path) if checkpoint_path is not None else None
+    if checkpoint is not None:
+        if (source.resolve() == checkpoint.resolve()
+                or (source.exists() and checkpoint.exists() and source.samefile(checkpoint))):
+            raise ValueError("checkpoint는 원본 입력과 다른 파일이어야 합니다.")
+    # [문제 1 · 한 줄] 같은 bytes의 검증된 모든 행과 SHA를 함께 읽는다.
+    # 예시: entries, digest = read_verified_file(input_path)
+    rows, checksum = _read_context_changes(source)
+    position = 0
+    state = None
+    # [문제 2 · 여러 줄] 기존 checkpoint가 있을 때 검사한 위치와 그 상태를 복원한다. (4줄)
+    # 예시: if marker is not None and marker.exists():
+    #           index = read_marker(marker, digest, len(entries))
+    #           saved = {"schema": "sample/v1",
+    #                    "hash": digest, "next": index}
+    if checkpoint is not None and checkpoint.exists():
+        position = _read_context_checkpoint(checkpoint, checksum, len(rows))
+        state = {"schema_version": "context-checkpoint/v1",
+                    "source_sha256": checksum, "next_line": position}
+
+    start = position
+    counts = {"applied": 0, "duplicate": 0, "stale": 0}
+    stop = min(len(rows), position + limit) if limit is not None else len(rows)
+    while position < stop:
+        # [문제 3 · 한 줄] 현재 index의 입력을 4교시 함수로 반영하고 결과를 받는다.
+        # 예시: result = apply_record(entries[index])
+        status = apply_context(rows[position])
+
+        if status not in counts:
+            raise ValueError("알 수 없는 반영 결과입니다.")
+        # [문제 4 · 여러 줄] 반영 성공 후에만 다음 위치를 저장하고 이동한다. (4줄)
+        # 예시: following = index + 1
+        #       if marker is not None:
+        #           saved = save_marker(marker, digest, following)
+        #       index = following
+        next_position = position + 1
+        if checkpoint is not None:
+            state = _save_context_checkpoint(checkpoint, checksum, next_position)
+            position = next_position
+
+        # [문제 5 · 한 단어] 이번 행에서 받은 applied·duplicate·stale 중 하나다.
+        # 힌트 5: 문제 3의 반환값을 담은 변수명이다.
+        counts[status] += 1
+
+    # 빈 입력도 next_line=0을 저장한다. 기존 완료 기록은 덮어쓰지 않는다.
+    if checkpoint is not None and state is None:
+        state = _save_context_checkpoint(checkpoint, checksum, position)
+    return {"processed": position - start, "applied": counts["applied"],
+            "skipped": counts["duplicate"] + counts["stale"], "counts": counts,
+            "start_line": start, "next_line": position, "rows": len(rows),
+            "done": position == len(rows), "source_sha256": checksum,
+            "checkpoint_path": str(checkpoint) if checkpoint is not None else None,
+            "checkpoint_state": state}
+
+def refresh_snapshot(source, contract_path, media_id="village-game"):
+    context_subject_key(media_id, "refresh")
+    # [문제 1 · 여러 줄] 수신 계약을 대조한 행·검사 결과를 읽고 모든 행을 정규화한다. (2줄)
+    # 예시: entries, checked = read_package(input_file, metadata_file)
+    #       packets = [convert(entry, group_id=group_id) for entry in entries]
+    rows, inspected = read_snapshot_package(source, contract_path)
+    changes = [normalize_snapshot(row, media_id=media_id) for row in rows]
+
+    counts = {"applied": 0, "duplicate": 0, "stale": 0}
+    for change in changes:
+        # [문제 2 · 한 줄] 현재 변경을 실제 반영 함수에 넘기고 상태를 status에 담는다.
+        # 예시: result = apply_record(packet)
+        status = apply_context(change)
+
+        if status not in counts:
+            raise ValueError("알 수 없는 반영 결과입니다.")
+        # [문제 3 · 한 단어] 방금 반환된 상태의 수를 늘릴 변수명이다.
+        # 힌트 3: 문제 2의 반환값이며 applied·duplicate·stale 중 하나다.
+        counts[status] += 1
+        
+    return {"source": str(source), "contract": str(contract_path), "rows": len(rows),
+            "source_sha256": inspected["sha256"], "media_id": media_id,
+            "counts": counts, "preview": changes[:1]}

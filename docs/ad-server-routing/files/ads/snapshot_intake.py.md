@@ -42,7 +42,7 @@ paths의 각 키는 {supplied: bool, exists: bool} 사전이다. 입력 경로 �
 
 ## 현재 사용 범위
 
-광고 사건 파일과 별개인 플레이어 공개 상태 검사와 CDC 준비 기록이다. [context_projection](context_projection.py.md)은 검사한 원본과 수신 계약을 대조하고 공개 context 변경 사전을 만든다. 현재 소비자는 [preview_player_snapshot 명령](management/commands/preview_player_snapshot.py.md)이며 광고 선택 context나 보고서에 자동 반영하지 않는다. 계정·좌표 등 추가 필드는 정확한 필드 집합 검사로 거절한다. inspect_snapshot은 전용 읽기 함수를 사용하고 load_rows는 검사 후 exporting.read_ndjson으로 파일을 다시 읽는다. 교육 fixture 저장은 exporting.write_ndjson을 재사용한다. 파일 비교에서 누락된 ID는 삭제 사건으로 바꾸지 않는다. 준비 기록의 경로 존재 여부는 실제 binlog·CDC 원문 관찰이나 연결 성공을 뜻하지 않는다.
+광고 사건 파일과 별개인 플레이어 공개 상태 검사와 CDC 준비 기록이다. [context_projection](context_projection.py.md)은 검사한 원본과 수신 계약을 대조하고 공개 context 변경 사전을 만든다. 소비자는 미리보기·전체 정규화·스냅샷 갱신 명령이며 광고 선택 context나 보고서에 자동 반영하지 않는다. 계정·좌표 등 추가 필드는 정확한 필드 집합 검사로 거절한다. inspect_snapshot은 전용 읽기 함수를 사용하고 load_rows는 검사 후 exporting.read_ndjson으로 파일을 다시 읽는다. 교육 fixture 저장은 exporting.write_ndjson을 재사용한다. 파일 비교에서 누락된 ID는 삭제 사건으로 바꾸지 않는다. 준비 기록의 경로 존재 여부는 실제 binlog·CDC 원문 관찰이나 연결 성공을 뜻하지 않는다.
 
 ## `def change_player(event)`
 
@@ -56,11 +56,11 @@ Signature: `def change_player(event)`
 
 Signature: `def build_snapshot_contract(source)`
 
-1. **검증·변환:** inspect_snapshot(source)의 검사 결과에 인계 메타데이터를 붙인다. artifact_id="game_server/data/exports/player-cdc.ndjson", artifact_version="v2", collector="game.export_player_snapshot"는 입력 경로와 무관한 고정값이다.
+1. **검증·변환:** inspect_snapshot(source)의 검사 결과에 인계 메타데이터를 붙인다. artifact_id="data/exports/player-cdc.ndjson", artifact_version="v2", collector="game.export_player_snapshot"는 입력 경로와 무관한 고정값이다.
 2. **직접 호출:** inspect_snapshot → str(source) → datetime.now(timezone.utc).isoformat → list(PUBLIC_FIELDS) → contract.update(inspected).
-3. **반환·상태:** source_path·created_at·binlog_cdc_status="not-configured"·position_kind="file-line"·kafka_position=None·public_field와 검사 결과(rows·public_ids·source_kind·schema_version·captured_at·sha256)를 합친 사전이다. public_field는 단수 키이며 공개 다섯 필드 목록이다. 생성 시각은 실행마다 달라진다. 파일 저장은 [write_snapshot_contract](management/commands/write_snapshot_contract.py.md)가 맡는다. file-line 값에 실제 줄 위치나 Kafka offset이 추가되지는 않는다.
+3. **반환·상태:** source_path·created_at·binlog_cdc_status="not-configured"·position_kind="file-line"·kafka_position=None·public_fields와 검사 결과(rows·public_ids·source_kind·schema_version·captured_at·sha256)를 합친 사전이다. public_fields는 복수 키이며 공개 다섯 필드 목록이다. 생성 시각은 실행마다 달라진다. 파일 저장은 [write_snapshot_contract](management/commands/write_snapshot_contract.py.md)가 맡는다. file-line 값에 실제 줄 위치나 Kafka offset이 추가되지는 않는다.
 
-현재 생성 계약은 handoff_snapshot과 [read_snapshot_package](context_projection.py.md)가 요구하는 artifact_id="data/exports/player-cdc.ndjson"·public_fields(복수 키)와 다르다. 이 생성 결과를 그대로 넘기면 artifact_id 비교에서 ValueError가 발생하며 인계·미리보기가 완료되지 않는다.
+생성 계약은 handoff_snapshot과 [read_snapshot_package](context_projection.py.md)의 artifact_id·public_fields 조건과 일치한다.
 
 ## `def load_rows(path)`
 
@@ -94,4 +94,4 @@ Signature: `def handoff_snapshot(source, contract_path, target)`
 2. **직접 호출:** Path → Path(contract_path).read_text → json.loads → inspect_snapshot → 기대 키 반복 비교 → parse_utc → target.exists → target.parent.mkdir → tempfile.mkdtemp → shutil.copyfile → 수신 파일 read_bytes·hashlib.sha256().hexdigest → 계약 write_text → temporary.rename(target). 같은 부모 아래 임시 폴더의 player-cdc.ndjson을 검사 당시 sha256과 대조하고, 기존 계약을 복사해 source_path만 최종 수신 파일 경로로 바꾼 player-cdc-contract.json을 저장한다. 계약 JSON은 ensure_ascii=False·sort_keys=True·indent=2이며 끝에 줄바꿈을 붙인다.
 3. **반환·상태:** 두 파일이 준비된 임시 폴더를 target으로 이름 변경한 뒤 rows·sha256·source_kind="player-snapshot"·target 사전을 반환한다. 원본과 원래 계약은 수정하지 않는다. 복사·체크섬 대조·계약 저장·이름 변경 중 예외가 나면 임시 폴더를 shutil.rmtree(ignore_errors=True)로 정리하고 다시 올린다. 출력 부모 폴더는 남을 수 있다. 파일·JSON·시각 오류를 전파하며 계약의 누락된 created_at은 KeyError, 비객체 계약은 TypeError 등으로 끝날 수 있다. 계약 불일치나 기존 target은 ValueError다. 검사 후 원본이 달라져 복사 checksum이 다르면 ValueError로 인계를 거절한다. 파일 잠금이나 실제 CDC 연결은 없다.
 
-인계에서 기대하는 계약과 build_snapshot_contract가 현재 생성하는 계약의 artifact_id·공개 필드 키 차이는 위 생성 함수 문서를 따른다. 수신 후 소비 직전의 JSON 타입·source_path·원본 변경 검사는 [context_projection.read_snapshot_package](context_projection.py.md)의 책임이다.
+인계와 build_snapshot_contract의 artifact_id·공개 필드 키는 일치한다. 수신 후 소비 직전의 JSON 타입·source_path·원본 변경 검사는 [context_projection.read_snapshot_package](context_projection.py.md)의 책임이다.

@@ -4,7 +4,7 @@
 
 ## 범위
 
-직접 유지보수하는 런타임 Python 전체가 대상이다. 프로젝트 루트 상대경로를 유지하여 `files/<프로젝트 상대경로>.md`와 정확히 하나씩 대응시켰다. 현재 대상은 **42파일·79개 top-level 함수/클래스 기호·35개 직접 정의한 클래스 메서드**다. signature는 `python-routing-diff-audit/scripts/audit_routing.py`의 `inventory()` 출력과 일치한다.
+직접 유지보수하는 런타임 Python 전체가 대상이다. 프로젝트 루트 상대경로를 유지하여 `files/<프로젝트 상대경로>.md`와 정확히 하나씩 대응시켰다. 현재 대상은 **45파일·88개 top-level 함수/클래스 기호·41개 직접 정의한 클래스 메서드**다. signature는 `python-routing-diff-audit/scripts/audit_routing.py`의 `inventory()` 출력과 일치한다.
 
 | 실제 파일 | 라우팅 문서 | 책임 |
 |---|---|---|
@@ -18,7 +18,7 @@
 | `ads/auth_views.py` | [`files/ads/auth_views.py.md`](files/ads/auth_views.py.md) | JSON 클라이언트용 CSRF 토큰·로그인·로그아웃을 제공한다. |
 | `ads/events.py` | [`files/ads/events.py.md`](files/ads/events.py.md) | 선택 당시 결정 스냅샷과 매체 subject를 확인해 노출·클릭 사건을 한 종류당 한 번 저장한다. |
 | `ads/media_auth.py` | [`files/ads/media_auth.py.md`](files/ads/media_auth.py.md) | 게임 등 매체 서버의 POST를 두 헤더와 공개 subject로 인증하는 decorator factory다. |
-| `ads/media_urls.py` | [`files/ads/media_urls.py.md`](files/ads/media_urls.py.md) | 최상위 `api/media/` 뒤에 붙는 매체 전용 선택·사건 경로를 등록한다. |
+| `ads/media_urls.py` | [`files/ads/media_urls.py.md`](files/ads/media_urls.py.md) | 최상위 `api/media/` 뒤에 붙는 매체 전용 선택·사건·현재 context 조회 경로를 등록한다. |
 | `ads/models.py` | [`files/ads/models.py.md`](files/ads/models.py.md) | 광고 앱의 Django ORM 모델 정의 위치다. |
 | `ads/mongo.py` | [`files/ads/mongo.py.md`](files/ads/mongo.py.md) | 한 프로세스의 MongoClient 연결 풀과 설정된 광고 Database 핸들을 제공한다. |
 | `ads/repository.py` | [`files/ads/repository.py.md`](files/ads/repository.py.md) | 캠페인·입찰 문서의 PyMongo 저장·목록 조회를 담당한다. |
@@ -50,6 +50,9 @@
 | `ads/management/commands/inspect_player_context.py` | [`files/ads/management/commands/inspect_player_context.py.md`](files/ads/management/commands/inspect_player_context.py.md) | 저장 문서 미리보기·고유 인덱스 생성·현재 context 조회 CLI |
 | `ads/management/commands/demo_context_versions.py` | [`files/ads/management/commands/demo_context_versions.py.md`](files/ads/management/commands/demo_context_versions.py.md) | 새 fixture subject의 버전·반복·충돌·삭제 표시 저장 데모 CLI |
 | `ads/management/inspect_player_context.py` | [`files/ads/management/inspect_player_context.py.md`](files/ads/management/inspect_player_context.py.md) | Django 자동 명령 탐색 밖의 고유 인덱스 생성·전체 context 요약 보조 모듈 |
+| `ads/management/commands/project_player_context.py` | [파일 문서](files/ads/management/commands/project_player_context.py.md) | 체크포인트로 중지/재개하며 정규화 전체 파일을 Mongo 반영 CLI |
+| `ads/management/commands/refresh_player_context.py` | [파일 문서](files/ads/management/commands/refresh_player_context.py.md) | 수신 스냅샷 전체의 최신 context 갱신 CLI |
+| `ads/management/commands/inspect_decision_context.py` | [파일 문서](files/ads/management/commands/inspect_decision_context.py.md) | 선택 당시 context와 현재 공개 복사본 비교 CLI |
 
 `ads/tests.py` 등 테스트, `ads/migrations/**`, 내용이 없는 `__init__.py`는 실행 호출 문서 대상에서 제외한다. `ads/admin.py`·`ads/models.py`는 현재 import/주석뿐이어도 Django 앱의 런타임 모듈이므로 포함한다. `.venv`·`__pycache__`·SQLite DB·`.env`·로그·이미지 등 생성/비밀/비Python 파일도 제외한다. 템플릿·정적 이미지의 소비 경로는 담당 view/settings 문서에 기록한다.
 
@@ -89,6 +92,8 @@ ad_config.urls
            -> clean_subject/clean_slot/clean_context
            -> candidate_rows -> mongo.get_db -> campaigns/bids 읽기
            -> decisions.insert_one
+     -> context -> media_auth.media_api_methods -> views.context_view
+        -> context_projection.get_context -> player_context 읽기
      -> events -> media_auth.media_api_methods -> views.event
         -> events.record_ad_event
            -> services.clean_subject
@@ -153,6 +158,14 @@ Django 관리 명령
      -> 고정 change 생성 -> apply_context 반복 -> 삭제 tombstone 보존
      -> get_context -> JSON 표준 출력
 
+  -> project_player_context.Command.handle -> context_projection.project_context_file
+     -> 전체 입력 검증/SHA -> checkpoint 읽기 -> 행별 apply_context
+     -> Mongo 성공 후 임시 checkpoint os.replace -> 결과 JSON
+  -> refresh_player_context.Command.handle -> context_projection.refresh_snapshot
+     -> read_snapshot_package -> 모든 행 정규화 -> 행별 apply_context
+  -> inspect_decision_context.Command.handle -> decisions.find_one
+     -> get_context -> 당시/현재 context 비교 -> JSON 표준 출력
+
 ads/management/inspect_player_context.py의 Command.handle (자동 CLI 탐색 대상 아님)
   -> player_context.create_index -> 전체 요약 필드 find -> JSON 표준 출력
 
@@ -180,6 +193,7 @@ Django 기본 인증·세션은 SQLite를 사용하고 광고 문서는 MongoDB�
 | GET·POST | `/campaigns/`, `/api/ads/campaigns/` | `views.campaigns` | 광고주 세션·POST CSRF/application/json → JSON |
 | GET·POST | `/bids/`, `/api/ads/bids/` | `views.bids` | 광고주 세션·POST CSRF/application/json → JSON |
 | POST | `/api/media/decision/` | `views.decision` | X-Media-ID·X-Media-Key, subject/context → 광고 선택 JSON |
+| POST | `/api/media/context/` | `views.context_view` | 매체 인증·subject → 현재 저장 context JSON, 미저장/삭제는 {} |
 | POST | `/api/media/events/` | `views.event` | 같은 매체 인증, subject·decision_id·event_type → 사건 JSON |
 
 Django form view가 처리하는 HEAD/OPTIONS 등 프레임워크 동작은 별도이며, 앱 decorator가 허용하는 메서드는 위 표와 같다. `/static/ads/creatives/...` 이미지 소비는 settings의 정적 파일 검색 위치와 개발 staticfiles 제공에 속하며 위 Python URLconf에 별도 path로 등록되어 있지 않다.
@@ -222,7 +236,7 @@ Django form view가 처리하는 HEAD/OPTIONS 등 프레임워크 동작은 별�
 - `python ad_config/manage.py write_cdc_readiness --output data/cdc-readiness.json [--mysql-config 경로] [--connect-home 경로] [--debezium-dir 경로]`: 세 선택 경로의 supplied·exists를 기록한다. 출력 부모 폴더를 만들고 UTF-8 JSON 파일을 덮어쓰며 같은 결과를 표준 출력한다. schema_version="cdc-readiness/v1", common_input="player-snapshot/v1"이며 mysql_binlog="not-verified", cdc_reader·connect_worker·debezium_connector·player_change_topic="not-configured", binlog_cdc_observed=False는 경로가 존재해도 유지된다. 경로의 종류·내용이나 실제 CDC 연결은 검사하지 않는다. [준비 기록 계약](files/ads/management/commands/write_cdc_readiness.py.md).
 
 - `python ad_config/manage.py compare_player_snapshots --before data/before.ndjson --after data/after.ndjson --output data/player-compare.json`: 두 파일을 검사한 뒤 ID별 업무 상태를 비교한다. changed는 공통 ID의 room_id·coins·version·UTC updated_at 변화이며 출력에는 전후 version·coins만 담는다. newly_seen·missing_unknown은 각각 이후·이전에만 있는 ID다. 누락을 삭제로 확정하지 않으며 차이가 있어도 정상 종료한다. 결과 파일은 두 입력과 resolve 경로가 달라야 한다. [비교 명령](files/ads/management/commands/compare_player_snapshots.py.md).
-- `python ad_config/manage.py write_snapshot_contract --source data/player-snapshot.ndjson --output data/player-contract.json`: 스냅샷 검사 결과와 source_path·UTC 생성 시각·public_field(単수 키)·고정 인계 메타데이터를 저장한다. artifact_id="game_server/data/exports/player-cdc.ndjson", artifact_version="v2", collector="game.export_player_snapshot"는 고정값이다. binlog_cdc_status="not-configured", position_kind="file-line", kafka_position=None이며 실제 CDC 위치를 읽지 않는다. 출력은 입력과 resolve 경로가 달라야 한다. 현재 이 출력은 아래 인계·미리보기의 요구 계약과 다르다. [계약 생성 명령](files/ads/management/commands/write_snapshot_contract.py.md).
+- `python ad_config/manage.py write_snapshot_contract --source data/player-snapshot.ndjson --output data/player-contract.json`: 검사 결과와 source_path·UTC 생성 시각·public_fields·artifact_id="data/exports/player-cdc.ndjson" 등의 수신 메타데이터를 저장한다. 인계·미리보기·정규화·갱신의 고정 계약과 일치한다. 실제 CDC 위치는 없으며 출력은 원본과 resolve 경로가 달라야 한다. [계약 생성 명령](files/ads/management/commands/write_snapshot_contract.py.md).
 - `python ad_config/manage.py write_player_change_fixture --output data/player-change-fixture.ndjson [--summary data/player-change-summary.json]`: teaching-fixture 출처의 고정 r/u/d 세 행을 저장한다. 요약은 path·source_kind·rows·sha256·interpreted이며 선택 파일과 표준 출력에 기록한다. summary를 지정하면 output과 resolve 경로가 달라야 한다. 실제 게임 상태를 수정하지 않는다. [fixture 명령](files/ads/management/commands/write_player_change_fixture.py.md).
 - `python ad_config/manage.py read_snapshot_missing --before data/before.ndjson --after data/after.ndjson --output data/player-missing.json`: 두 스냅샷을 검사한 뒤 이전 파일에만 있는 정렬된 ID를 unknown으로 기록한다. source_kind="snapshot-comparison", delete_events=[], delete_inference_allowed=False이며 삭제 사건을 생성하지 않는다. 결과는 두 입력과 resolve 경로가 달라야 한다. [누락 기록 명령](files/ads/management/commands/read_snapshot_missing.py.md).
 - `python ad_config/manage.py handoff_player_snapshot --source data/player-snapshot.ndjson --contract data/game-player-contract.json --target data/received/player-v2`: 검사 결과와 artifact_id="data/exports/player-cdc.ndjson"·public_fields(복수 키) 등의 기대 계약을 대조한다. target이 존재하면 거절한다. 같은 부모의 임시 폴더에 원본을 복사하고 SHA-256을 확인한 뒤 source_path를 최종 수신 파일로 바꾼 계약을 함께 저장하고 폴더를 rename한다. 최종 파일명은 player-cdc.ndjson·player-cdc-contract.json이며 rows·sha256·source_kind·target을 표준 출력한다. [인계 명령](files/ads/management/commands/handoff_player_snapshot.py.md).
@@ -234,6 +248,10 @@ Django form view가 처리하는 HEAD/OPTIONS 등 프레임워크 동작은 별�
 - `python ad_config/manage.py inspect_player_context [--source data/player-context.ndjson] [--media-id village-game] [--subject 1]`: 입력을 미리보고 고유 인덱스를 생성한 뒤 매체/대상별 저장 문서를 조회한다. source를 지정해도 문서를 반영하지 않는다. [검사 명령](files/ads/management/commands/inspect_player_context.py.md).
 - `python ad_config/manage.py demo_context_versions --subject fixture-new-demo`: 존재하지 않는 fixture subject에 실제 Mongo 쓰기로 first·newer·repeat·older·conflict·delete·older-after-delete를 관찰한다. 최종 version=3 tombstone을 남긴다. [데모 명령](files/ads/management/commands/demo_context_versions.py.md).
 
+- `python ad_config/manage.py project_player_context --source data/player-context.ndjson --checkpoint data/context-checkpoint.json [--limit 100]`: 같은 파일 SHA와 0-based next_line으로 재개한다. 전체 파일을 먼저 검증하고 각 Mongo 반영 성공 뒤 위치 파일을 교체한다. 입력이 바뀌면 기존 checkpoint를 거절한다. 현재 checkpoint 생략 시 비어 있지 않은 입력에서 위치가 증가하지 않으므로 반드시 지정한다. [일괄 반영](files/ads/management/commands/project_player_context.py.md).
+- `python ad_config/manage.py refresh_player_context --source data/player-snapshot.ndjson --contract data/player-contract.json [--media-id village-game]`: 전체 계약·정규화를 마친 뒤 행별 버전 정책으로 반영한다. 누락 ID를 삭제하지 않으며 중간 실패 시 선행 반영은 남는다. [갱신 명령](files/ads/management/commands/refresh_player_context.py.md).
+- `python ad_config/manage.py inspect_decision_context --subject 1 --latest [--media-id village-game]` 또는 `--decision-id ID`: 저장된 선택 당시 context와 현재 공개 복사본의 키/값 차이를 읽기만 한다. subject 조회에는 latest가 필요하고 decision-id와 latest는 함께 지정할 수 없다. [비교 명령](files/ads/management/commands/inspect_decision_context.py.md).
+
 ## 현재 구현에서 점검할 문제
 
 1. `repository.save_bid_document()`는 bids에 저장한 뒤 orders에서 반환 문서를 읽는다. 보통 None이어서 `views.bids`의 JsonResponse에서 TypeError/500이 날 수 있다. 저장된 입찰과 HTTP 성공을 구별한다. 웹은 목록을 다시 읽어 이 결함이 덜 드러난다.
@@ -243,10 +261,11 @@ Django form view가 처리하는 HEAD/OPTIONS 등 프레임워크 동작은 별�
 5. 웹 `snapshot_ready`는 chosen_campaign_id 존재만 판정한다. 사건 함수는 후보 소유자·금액까지 검사하므로 웹 표시만으로 사건 저장 가능성을 확정할 수 없다. owner_user_id가 없는 과거 결정은 본인 결정 목록에도 나오지 않는다.
 6. 파일 전달은 파일 교체 후 Mongo 표식을 쓰며 동시 writer를 조정하지 않는다. 표식이 있는 사건은 파일이 사라져도 재선택되지 않는다. 보고서 게시는 행별 저장이며 입력에 없는 기존 행은 유지한다.
 7. 스냅샷 load_rows는 검사 후 파일을 다시 읽으므로 두 읽기 사이의 입력 불변을 전제로 한다. 비교·누락·계약·fixture JSON 출력은 직접 덮어쓰기이며 원자적 교체가 아니다. resolve 경로 비교는 서로 다른 경로의 hard link를 구별하지 않는다. handoff_snapshot은 임시 폴더를 완성한 뒤 rename하고 실패 시 임시 폴더를 정리한다.
-8. build_snapshot_contract는 artifact_id="game_server/data/exports/player-cdc.ndjson"·public_field를 생성하지만 handoff_snapshot·read_snapshot_package는 artifact_id="data/exports/player-cdc.ndjson"·public_fields를 요구한다. 생성한 계약을 그대로 인계·미리보기 입력에 사용하면 거절된다. 요구 계약에 맞춘 별도 입력이 필요하다. handoff_snapshot의 필드 비교는 Python ==, read_snapshot_package는 JSON 표현 비교여서 bool/int 등의 타입 구별에도 차이가 있다.
+8. build_snapshot_contract의 artifact_id·public_fields가 인계·미리보기 소비 조건과 일치하도록 수정되었다. handoff_snapshot은 Python ==, read_snapshot_package는 JSON 표현으로 대조하므로 타입 구별 정도는 여전히 다르다. 수신 계약의 source_path는 최종 입력 파일을 가리켜야 한다.
 9. 정규화 미리보기는 파일 순서의 첫 행만 처리한다. player_id·subject_id는 문자열이며 captured_at은 검사하지만 change_id에 포함하지 않는다. 미리보기 자체는 저장하지 않는다. 전체 정규화·선택 행 Mongo 반영은 별도 명령이며 저장 context가 광고 순위 계산에 연결되지는 않는다. player-snapshot은 upsert만 허용하고 teaching-fixture만 명시적 delete를 허용한다.
 10. make_context_document의 context 분기는 op=="deleted"를 비교하지만 검증에서 허용한 op는 upsert/delete다. 항상 입력 context를 복사하며 delete의 빈 사전은 선행 검증으로 보장된다. 동일 version의 중복 판정은 deleted/context만 비교한다. inspect_player_context는 조회에 앞서 고유 인덱스를 생성하며 데모는 저장 데이터를 남긴다.
-11. 현재 tests.py는 기본 골격이다. 이 문서는 정적 호출/시그니처 문서이며 실제 HTTP·Mongo 실행 성공을 증명하는 테스트 결과가 아니다.
+11. project_context_file은 checkpoint가 있을 때만 position을 증가시킨다. checkpoint 생략 시 비어 있지 않은 입력은 반복 처리하며 종료하지 않는다. 체크포인트 사용 시에도 Mongo와 위치 파일은 별도 단계이며 동시 writer 잠금은 없다.
+12. 현재 tests.py는 기본 골격이다. 이 문서는 정적 호출/시그니처 문서이며 실제 HTTP·Mongo 실행 성공을 증명하는 테스트 결과가 아니다.
 
 ## 문서 갱신 규칙
 
@@ -258,4 +277,4 @@ Django form view가 처리하는 HEAD/OPTIONS 등 프레임워크 동작은 별�
 
 ## 이번 점검 결과
 
-2026-10-13 갱신에서 런타임 42파일·114개 기호(함수/클래스 79개·직접 정의 메서드 35개)의 문서 대응·AST 시그니처와 로컬 문서 링크를 확인했다. 새 명령 4개와 자동 명령 탐색 밖의 보조 모듈 1개를 문서화하고 context_projection의 새 함수 6개와 Mongo 경계를 반영했다. 감사 도구의 프로젝트 루트 경로 처리는 임시 복사본에서 보완하여 기존 프로젝트 상대경로 문서와 대조했다. 시스템 검사는 기존 urls.W005 namespace 경고 1건과 함께 완료했고 새 명령 4개의 help가 정상 로딩되었다. 변경사항 감사의 문서 누락·파싱 오류·미기재 기호·인수 구조 불일치는 0건이다. 실제 Mongo 반영·인덱스 생성·데모 실행·HTTP·CDC 연동은 이번 문서 작업에서 실행하지 않았다.
+2026-10-13 기준 직전 커밋 6a75121과 작업 트리를 대조해 새 관리 명령 3개·context_projection 함수 5개·context 조회 API와 계약 필드 수정을 반영했다. 런타임 45파일·129개 기호(함수/클래스 88개·직접 정의 메서드 41개)의 AST 시그니처·파일 대응·문서 링크를 확인했다. 변경사항 감사의 문서 누락·오래된 문서·파싱 오류·미기재 기호·인수 구조 불일치는 0건이다. 새 관리 명령 3개의 help가 로딩되었고 Django 시스템 검사에는 기존 urls.W005 경고가 남는다. 체크포인트 생략 시 위치가 증가하지 않는 현재 코드의 제한을 명시했다. 실제 Mongo 반영·HTTP·CDC 실행은 수행하지 않았다.

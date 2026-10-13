@@ -3,6 +3,7 @@ from . import views
 
 app_name = "media_ads"
 urlpatterns = [
-        path("decision/", views.decision, name="decision"),
-        path("events/", views.event, name="events"),
-    ]
+    path("decision/", views.decision, name="decision"),
+    path("events/", views.event, name="events"),
+    path("context/", views.context_view, name="context"),
+]

@@ -59,3 +59,11 @@ Signature: `def event(request)` · 소스 79행.
 1. **검증·변환:** media_api_methods("POST")로 보호된다. 인증된 request.subject와 본문의 decision_id·event_type을 사용한다.
 2. **직접 호출:** record_ad_event(request.subject, body.get("decision_id"), body.get("event_type")) → JsonResponse.
 3. **반환·상태:** 200 JSON event_id·event_type·created를 반환하고 성공 응답에 Cache-Control: no-store를 붙인다. 오류는 매체 decorator가 400/503으로 변환한다.
+
+## `def context_view(request)`
+
+Signature: `def context_view(request)`
+
+1. **검증·변환:** media_api_methods("POST")가 매체 키·JSON·subject와 인증 매체 일치를 먼저 검사한다.
+2. **직접 호출:** request.subject → get_context(media_id, subject_id) → JsonResponse → Cache-Control 설정.
+3. **반환·상태:** subject와 현재 context를 JSON으로 반환하고 Cache-Control: no-store를 설정한다. 미저장/삭제 상태는 context={}다. Mongo 오류는 decorator에서 503, 식별자 ValueError는 400이다. 저장하지 않는다.

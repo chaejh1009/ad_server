@@ -36,4 +36,4 @@ Signature: `def handle(self, *args, **options)`
 
 현재 서비스는 계약을 별도로 dict 검증하지 않고 각 기대값을 Python의 `!=`로 비교한다. JSON 직렬화에 의한 타입 구분은 없으므로 숫자 0/1과 bool처럼 Python에서 같은 값으로 비교되는 경우를 구분하지 않는다. 기존 계약 source_path의 존재나 source 경로 일치는 확인하지 않고 최종 수신 경로로 덮어쓴다. 소비 직전 [preview_player_snapshot](preview_player_snapshot.py.md)이 사용하는 read_snapshot_package는 이와 달리 JSON 값·타입과 source_path를 검사한다.
 
-[write_snapshot_contract](write_snapshot_contract.py.md)는 다른 artifact_id 접두사와 단수 public_field를 생성하므로 그 출력은 이 명령의 계약 조건을 그대로 만족하지 않는다. 원본은 검사부터 복사까지 동결되어 있어야 하며 복사 후 체크섬 불일치는 거절한다. 폴더 존재 검사와 rename 사이의 동시 작성은 잠금으로 제어하지 않으므로 단일 작성자를 전제로 한다. 인계 성공도 실제 binlog·CDC 관찰 증거를 만들지는 않는다.
+[write_snapshot_contract](write_snapshot_contract.py.md)는 이 명령과 동일한 artifact_id·public_fields 계약을 생성한다. 원본은 검사부터 복사까지 동결되어 있어야 하며 복사 후 체크섬 불일치는 거절한다. 폴더 존재 검사와 rename 사이의 동시 작성은 잠금으로 제어하지 않으므로 단일 작성자를 전제로 한다. 인계 성공도 실제 binlog·CDC 관찰 증거를 만들지는 않는다.

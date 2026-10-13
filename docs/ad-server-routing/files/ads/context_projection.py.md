@@ -16,7 +16,7 @@ Signature: `def read_snapshot_package(source, contract_path)`
 2. **직접 호출:** Path → contract_path.read_text → json.loads → [inspect_snapshot](snapshot_intake.py.md) → 기대 키 반복·json.dumps 비교 → [parse_utc](timestamps.py.md) → Path.resolve → [_read_snapshot](snapshot_intake.py.md). 마지막 재읽기에서 행과 checksum을 같은 바이트로 얻고 검사 당시 sha256과 대조한다.
 3. **반환·상태:** (원본 행 목록, 검사 결과 사전)을 반환한다. 행 순서는 NDJSON 원본 순서이며 정렬하지 않는다. 계약 비객체·기대 키 누락/불일치·source_path 누락/경로 불일치·검사 후 checksum 변경은 ValueError다. 파일·UTF-8·JSON·시각·경로 오류도 전파한다. 입력·계약을 수정하지 않으며 파일 잠금은 없다. 검사를 마친 후 다른 바이트로 바뀐 원본을 그대로 소비하지 않는다.
 
-현재 [build_snapshot_contract](snapshot_intake.py.md)는 artifact_id="game_server/data/exports/player-cdc.ndjson"·public_field(단수)를 생성한다. 그 결과를 그대로 이 함수에 전달하면 artifact_id 비교에서 거절된다. 인계와 미리보기의 소비 계약은 artifact_id="data/exports/player-cdc.ndjson"·public_fields(복수)를 요구한다.
+현재 [build_snapshot_contract](snapshot_intake.py.md)는 동일한 artifact_id="data/exports/player-cdc.ndjson"·public_fields를 생성한다. 인계 후 계약 source_path는 최종 수신 경로로 변경된다.
 
 ## `def normalize_snapshot(row, media_id='village-game')`
 
@@ -75,6 +75,46 @@ Signature: `def get_context(media_id, subject_id)`
 2. **직접 호출:** context_subject_key → get_db().player_context.find_one({_id:key}) → dict(context).
 3. **반환·상태:** 문서가 있고 deleted=False면 context의 얕은 복사, 없거나 삭제 표시 상태면 {}를 반환한다. 저장하지 않으며 Mongo/저장 문서 필드 오류를 전파한다.
 
-## 광고 선택과의 현재 연결
+## `def _read_context_changes(source)`
 
-미리보기는 첫 행만 표준 출력하고 전체 정규화 명령은 모든 행을 파일로 저장한다. 반영 명령은 선택한 한 행을 player_context에 저장한다. 검사 명령은 고유 인덱스 생성과 조회를 수행하며 데모는 fixture subject를 실제 저장한다. 현재 [views.decision](views.py.md) → [services.choose_ad](services.py.md)는 get_context를 호출하지 않아 이 저장 상태를 광고 선택에 자동 주입하지 않는다. 스냅샷은 upsert만 만들며 누락 ID를 삭제로 추론하지 않는다.
+Signature: `def _read_context_changes(source)`
+
+1. **검증·변환:** 입력 바이트의 모든 행을 JSON으로 해석하고 make_context_document로 검증한다. 빈 줄은 행 번호를 포함한 ValueError다.
+2. **직접 호출:** Path.read_bytes → splitlines → UTF-8 decode/json.loads → make_context_document → SHA-256.
+3. **반환·상태:** 같은 바이트에서 얻은 (행 목록, checksum)을 반환한다. 빈 파일은 허용한다. 파일·JSON·UTF-8·계약 오류를 전파한다.
+
+## `def _read_context_checkpoint(checkpoint, checksum, row_count)`
+
+Signature: `def _read_context_checkpoint(checkpoint, checksum, row_count)`
+
+1. **검증·변환:** 정확히 schema_version·source_sha256·next_line 3필드의 JSON 객체이며 context-checkpoint/v1이어야 한다. SHA는 소문자 16진수 64자이고 실제 입력 SHA와 같아야 한다. next_line은 bool 제외 0~row_count int다.
+2. **직접 호출:** Path.read_text → json.loads → 필드/해시/위치 검사.
+3. **반환·상태:** 0-based 다음 처리 위치를 반환한다. 변경된 파일은 새 checkpoint가 필요하며 저장하지 않는다.
+
+## `def _save_context_checkpoint(checkpoint, checksum, position)`
+
+Signature: `def _save_context_checkpoint(checkpoint, checksum, position)`
+
+1. **검증·변환:** 호출자가 검증한 해시와 위치로 context-checkpoint/v1 사전을 만든다. 별도 값 검증은 없다.
+2. **직접 호출:** 부모 mkdir → TemporaryDirectory → 임시 JSON write_text(sort_keys=True) → os.replace.
+3. **반환·상태:** 완성된 위치 파일로 목적지를 교체하고 저장 상태를 반환한다. 쓰기 실패를 전파한다. 잠금은 제공하지 않는다.
+
+## `def project_context_file(source_path, checkpoint_path=None, limit=None)`
+
+Signature: `def project_context_file(source_path, checkpoint_path=None, limit=None)`
+
+1. **검증·변환:** limit은 bool 제외 양수 int 또는 None이다. 빈 checkpoint 경로, 원본과 resolve/samefile로 같은 위치 파일을 거절한다. 전체 입력을 먼저 검증하고 기존 checkpoint의 SHA/위치를 대조한다.
+2. **직접 호출:** _read_context_changes → 선택 _read_context_checkpoint → 행별 apply_context → 성공한 applied/duplicate/stale 뒤 _save_context_checkpoint.
+3. **반환·상태:** processed·applied·skipped·counts·start_line·next_line·rows·done·source_sha256·checkpoint_path·checkpoint_state를 반환한다. next_line은 0-based 처리 완료 행 수다. Mongo 반영 후 위치를 저장하므로 위치 저장 전 실패한 행은 재실행 때 버전 정책으로 재처리한다. 중간 실패 시 선행 Mongo/체크포인트는 남는다. 빈 입력도 새 checkpoint에 0을 저장한다. **현재 position 증가가 checkpoint 분기 안에 있어 checkpoint=None인 비어 있지 않은 입력은 같은 행을 반복하며 종료하지 않는다.** 제한 행 수도 이 문제를 해결하지 않는다. 예제는 checkpoint를 지정한다.
+
+## `def refresh_snapshot(source, contract_path, media_id='village-game')`
+
+Signature: `def refresh_snapshot(source, contract_path, media_id='village-game')`
+
+1. **검증·변환:** context_subject_key로 media_id를 검사하고 read_snapshot_package로 전체 계약/원본을 대조한다. 모든 행을 normalize_snapshot으로 바꾼 뒤 저장을 시작한다.
+2. **직접 호출:** context_subject_key → read_snapshot_package → 모든 행 normalize_snapshot → 행별 apply_context → 상태 카운트.
+3. **반환·상태:** source·contract·rows·source_sha256·media_id·counts·첫 행 preview를 반환한다. 낮은 버전/중복은 건너뛰고 동일 버전 충돌은 오류다. 체크포인트·전체 트랜잭션은 없으며 선행 반영은 남는다. 파일에 없는 ID를 삭제하지 않는다.
+
+## HTTP·광고 선택과의 연결
+
+[views.context_view](views.py.md)는 get_context로 현재 공개 복사본을 읽는다. decisions.context는 선택 당시 요청 값을 유지하며 [inspect_decision_context](management/commands/inspect_decision_context.py.md)가 현재 상태와 비교한다. choose_ad는 현재 저장 context를 자동 조회하지 않는다. 일괄 반영·스냅샷 갱신은 별도 CLI이며 snapshot 누락 ID로 삭제를 추론하지 않는다.

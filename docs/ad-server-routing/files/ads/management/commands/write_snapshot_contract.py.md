@@ -34,7 +34,7 @@ Signature: `def handle(self, *args, **options)`
 
 | 필드 | 값·조건 |
 | --- | --- |
-| artifact_id | `"game_server/data/exports/player-cdc.ndjson"` 고정값 |
+| artifact_id | `"data/exports/player-cdc.ndjson"` 고정값 |
 | artifact_version | `"v2"` |
 | source_path | 입력 source를 문자열로 표현한 값. resolve 결과로 바꾸지 않는다. |
 | created_at | 실행 시점의 UTC 시각을 ISO 형식으로 표현한 값 |
@@ -42,7 +42,7 @@ Signature: `def handle(self, *args, **options)`
 | binlog_cdc_status | `"not-configured"` |
 | position_kind | `"file-line"`. 실제 줄 위치는 추가하지 않는다. |
 | kafka_position | `null` |
-| public_field | `id`·`room_id`·`coins`·`version`·`updated_at` 목록. 키가 단수다. |
+| public_fields | `id`·`room_id`·`coins`·`version`·`updated_at` 목록. 키가 복수다. |
 | rows·public_ids·source_kind·schema_version·captured_at·sha256 | [inspect_snapshot](../../snapshot_intake.py.md)의 실제 검사 결과. source_kind는 `"player-snapshot"`, schema_version은 `"player-snapshot/v1"`이다. 빈 파일은 rows=0·public_ids=[]·captured_at=null이다. |
 
-현재 [handoff_player_snapshot](handoff_player_snapshot.py.md)과 [preview_player_snapshot](preview_player_snapshot.py.md)의 소비 서비스는 artifact_id=`"data/exports/player-cdc.ndjson"`와 복수 키 public_fields를 요구한다. 이 명령이 생성한 계약은 그 조건과 달라 두 명령에 그대로 입력하면 거절된다. 입력 경로를 바꾸어도 artifact_id와 키 이름은 바뀌지 않는다.
+현재 생성 계약은 [handoff_player_snapshot](handoff_player_snapshot.py.md)과 [preview_player_snapshot](preview_player_snapshot.py.md)의 artifact_id·public_fields 조건과 일치한다. 원본 경로·체크섬·생성 시각 등 나머지 계약 검사는 각 소비 함수가 담당한다.

@@ -155,24 +155,34 @@ def change_player(event):
     return {"op":op, "player_id":state["id"], "coins": state["coins"],
             "version": state["version"], "deleted":op == "d"}
 
-def build_snapshot_contract(source):
-    # [문제 1 · 한 줄] source를 검사한 결과를 inspected에 담는다.
-    # 예시: checked = inspect_snapshot(input_path)
-    inspected = inspect_snapshot(source)
-    # [문제 2 · 여러 줄] 위 계약 표의 안정 메타데이터를 contract 사전으로 만든다. (5줄)
-    # 예시: metadata = {"artifact_id": "sample.ndjson",
-    #                  "source_path": str(input_path), "fields": list(names)}
-    contract = {
-        "artifact_id": "game_server/data/exports/player-cdc.ndjson", "artifact_version": "v2",
-        "source_path": str(source), "created_at": datetime.now(timezone.utc).isoformat(),
-        "collector": "game.export_player_snapshot", "binlog_cdc_status": "not-configured",
-        "position_kind": "file-line", "kafka_position": None,
-        "public_field": list(PUBLIC_FIELDS)
-    }
+# def build_snapshot_contract(source):
+#     # [문제 1 · 한 줄] source를 검사한 결과를 inspected에 담는다.
+#     # 예시: checked = inspect_snapshot(input_path)
+#     inspected = inspect_snapshot(source)
+#     # [문제 2 · 여러 줄] 위 계약 표의 안정 메타데이터를 contract 사전으로 만든다. (5줄)
+#     # 예시: metadata = {"artifact_id": "sample.ndjson",
+#     #                  "source_path": str(input_path), "fields": list(names)}
+#     contract = {
+#         "artifact_id": "game_server/data/exports/player-cdc.ndjson", "artifact_version": "v2",
+#         "source_path": str(source), "created_at": datetime.now(timezone.utc).isoformat(),
+#         "collector": "game.export_player_snapshot", "binlog_cdc_status": "not-configured",
+#         "position_kind": "file-line", "kafka_position": None,
+#         "public_field": list(PUBLIC_FIELDS)
+#     }
 
-    # [문제 3 · 한 단어] 실제 검사 결과의 키·값을 contract에 합친다.
+#     # [문제 3 · 한 단어] 실제 검사 결과의 키·값을 contract에 합친다.
+#     contract.update(inspected)
+#     return contract
+def build_snapshot_contract(source):
+    inspected = inspect_snapshot(source)
+    contract = {"artifact_id": "data/exports/player-cdc.ndjson", "artifact_version": "v2",
+                "source_path": str(source), "created_at": datetime.now(timezone.utc).isoformat(),
+                "collector": "game.export_player_snapshot", "binlog_cdc_status": "not-configured",
+                "position_kind": "file-line", "kafka_position": None,
+                "public_fields": list(PUBLIC_FIELDS)}
     contract.update(inspected)
     return contract
+
 
 def load_rows(path):
     inspect_snapshot(path)
