@@ -4,7 +4,7 @@
 
 ## 범위
 
-직접 유지보수하는 런타임 Python 전체가 대상이다. 프로젝트 루트 상대경로를 유지하여 `files/<프로젝트 상대경로>.md`와 정확히 하나씩 대응시켰다. 현재 대상은 **49파일·97개 top-level 함수/클래스 기호·47개 직접 정의한 클래스 메서드**다. signature는 `python-routing-diff-audit/scripts/audit_routing.py`의 `inventory()` 출력과 일치한다.
+직접 유지보수하는 런타임 Python 전체가 대상이다. 프로젝트 루트 상대경로를 유지하여 `files/<프로젝트 상대경로>.md`와 정확히 하나씩 대응시켰다. 현재 대상은 **55파일·108개 top-level 함수/클래스 기호·57개 직접 정의한 클래스 메서드**다. signature는 `python-routing-diff-audit/scripts/audit_routing.py`의 `inventory()` 출력과 일치한다.
 
 | 실제 파일 | 라우팅 문서 | 책임 |
 |---|---|---|
@@ -57,6 +57,12 @@
 | `ads/management/commands/export_context_handoff.py` | [파일 문서](files/ads/management/commands/export_context_handoff.py.md) | 완료된 정규화 입력·위치·현재 Mongo 공개 문서를 새 인계 폴더로 묶는다 |
 | `ads/management/commands/inspect_player_lake.py` | [파일 문서](files/ads/management/commands/inspect_player_lake.py.md) | 고정 정규화 파일에서 history/current를 저장 없이 미리 본다 |
 | `ads/management/commands/demo_player_lake.py` | [파일 문서](files/ads/management/commands/demo_player_lake.py.md) | 별도 메모리 fixture로 중복·버전·삭제·거절을 관찰한다 |
+| `ads/sink_evidence.py` | [파일 문서](files/ads/sink_evidence.py.md) | 공개 문서 계약 검증·Lake/Mongo 입력 대상 상태 대조 |
+| `ads/management/commands/build_player_lake.py` | [파일 문서](files/ads/management/commands/build_player_lake.py.md) | 고정 정규화 파일에서 새 Player Lake 버전을 저장한다 |
+| `ads/management/commands/compare_player_lake_versions.py` | [파일 문서](files/ads/management/commands/compare_player_lake_versions.py.md) | 보존한 두 Lake 버전의 파일 SHA·행 수를 검증하고 지문을 대조한다 |
+| `ads/management/commands/compare_player_sinks.py` | [파일 문서](files/ads/management/commands/compare_player_sinks.py.md) | 동일 원본을 재계산해 Lake 결과를 검증한 뒤 Mongo 공개 상태와 대조하고 JSON 증거를 저장한다 |
+| `ads/management/commands/demo_player_sink_comparison.py` | [파일 문서](files/ads/management/commands/demo_player_sink_comparison.py.md) | 별도 메모리 fixture로 공개 상태 대조의 정상·차이·거절을 관찰한다 |
+| `ads/management/commands/export_day26_ad_events.py` | [파일 문서](files/ads/management/commands/export_day26_ad_events.py.md) | 기존 사건 내보내기를 임시 파일로 실행하고 검증한 뒤 새 고정 사건 파일로 옮긴다 |
 
 `ads/tests.py` 등 테스트, `ads/migrations/**`, 내용이 없는 `__init__.py`는 실행 호출 문서 대상에서 제외한다. `ads/admin.py`·`ads/models.py`는 현재 import/주석뿐이어도 Django 앱의 런타임 모듈이므로 포함한다. `.venv`·`__pycache__`·SQLite DB·`.env`·로그·이미지 등 생성/비밀/비Python 파일도 제외한다. 템플릿·정적 이미지의 소비 경로는 담당 view/settings 문서에 기록한다.
 
@@ -230,7 +236,7 @@ Django form view가 처리하는 HEAD/OPTIONS 등 프레임워크 동작은 별�
 
 ## 관리 명령과 파일 계약
 
-- `python ad_config/manage.py export_ad_events --output data/ad-events.ndjson [--since ISO시각] [--until ISO시각]`: 시간대가 있는 경계를 UTC로 정규화한다. 사건의 **impression_time**으로 [since, until)을 판단하고, event_time·event_id 순서로 정렬해 공개 12필드만 쓴다. 파일은 덮어쓰며 메타데이터(path·rows·sha256·schema_version·source_kind·since·until)는 표준 출력한다. [상세 계약](files/ads/exporting.py.md).
+- `python ad_config/manage.py export_ad_events --output data/ad-events.ndjson [--since ISO시각] [--until ISO시각]`: 시간대가 있는 경계를 UTC로 정규화한다. 사건의 **impression_time**으로 [since, until)을 판단하고, UTC로 파싱한 event_time·event_id 순서로 정렬해 공개 12필드만 쓴다. 파일은 덮어쓰며 메타데이터(path·rows·sha256·schema_version·source_kind·since·until)는 표준 출력한다. [상세 계약](files/ads/exporting.py.md).
 - `python ad_config/manage.py deliver_ad_events --output data/ad-events.ndjson [--limit 100]`: 표식 없는 사건을 기존 파일과 ID별 병합하고 임시 파일 교체 후 file_delivered_at을 기록한다. 한 writer를 전제로 하며 파일과 Mongo는 별도 저장 단계다. [전달 계약](files/ads/delivery.py.md).
 - `python ad_config/manage.py build_ad_reports --source data/ad-events.ndjson --output data/ad-reports.ndjson`: 중복 사건 제거·클릭의 선행 노출 검증 후 서울 노출일 기준 후보를 만든다. 같은 ID의 내용 충돌은 거절한다. Mongo에 게시하지 않는다. [집계 계약](files/ads/reporting.py.md).
 - `python ad_config/manage.py load_ad_reports --source data/ad-reports.ndjson`: 업무 키별 replace upsert 후 published=처리행수를 출력한다. 입력에 없는 기존 행은 유지한다. [게시 명령](files/ads/management/commands/load_ad_reports.py.md).
@@ -274,6 +280,25 @@ demo_player_lake.Command.handle
 
 `inspect_player_lake --source data/handoff/context-v2/player-context-changes.ndjson --manifest data/handoff/context-v2/manifest.json --stage current --repeat 2 --reverse`는 입력 검증 후 메모리에서 재계산한다. [검사 명령](files/ads/management/commands/inspect_player_lake.py.md)은 현재 덤프의 해시 검증을 수행하지 않는다. `demo_player_lake --case delete` 등은 별도 fixture를 사용한다. [Lake 함수](files/ads/lake_files.py.md)는 history를 event_time/change_id 순, current를 _id 순으로 반환한다.
 
+## 저장 Lake 버전·sink 대조·고정 사건 내보내기
+
+```text
+build_player_lake -> lake_files.build_lake_version
+  -> _read_context_changes -> build_history -> build_current
+  -> 새 폴더 history/current NDJSON -> 파일 SHA -> manifest 마지막 저장
+compare_player_lake_versions -> read_lake_manifest(전후)
+  -> 두 결과 파일 SHA/행 수 검사 -> 원본·history·current 지문 비교
+compare_player_sinks -> 출력 경로 보호 -> read_lake_manifest
+  -> 원본 검사·history/current 재계산·저장 결과 대조
+  -> sink_evidence.compare_context_to_current -> Mongo 조회·compare_rows -> JSON 저장
+demo_player_sink_comparison -> 메모리 fixture -> compare_rows -> JSON/예상 오류
+export_day26_ad_events -> 임시 export_ad_events -> 공개 필드·ID·SHA 검사 -> 새 파일 rename
+```
+
+[Lake 생성](files/ads/lake_files.py.md)은 새 디렉터리에 직접 기록하고 manifest를 마지막에 쓴다. 실패한 부분 디렉터리는 남을 수 있다. [버전 비교](files/ads/management/commands/compare_player_lake_versions.py.md)는 파일 지문을 확인하며 결과 차이 자체로 실패하지 않는다. [sink 대조](files/ads/management/commands/compare_player_sinks.py.md)는 같은 원본의 재계산 결과와 Lake를 대조한 뒤 Mongo를 읽는다. 비교 필드는 media_id·subject_id·version·deleted·context이며 입력 외 실제 대상은 extra_keys다. 추가 키만 있어도 input_scope_matches=True다. 누락/불일치 증거를 저장해도 명령은 정상 종료한다. [fixture 대조](files/ads/management/commands/demo_player_sink_comparison.py.md)는 DB를 수정하지 않는다.
+
+[고정 사건 명령](files/ads/management/commands/export_day26_ad_events.py.md)은 새 파일만 허용하고 공개 필드·고유 ID·SHA를 검사한다. 사건 최종 정렬은 실제 UTC event_time·event_id이며 필터 범위는 기존처럼 impression_time의 [since, until)이다.
+
 ## 현재 구현에서 점검할 문제
 
 1. `repository.save_bid_document()`는 bids에 저장한 뒤 orders에서 반환 문서를 읽는다. 보통 None이어서 `views.bids`의 JsonResponse에서 TypeError/500이 날 수 있다. 저장된 입찰과 HTTP 성공을 구별한다. 웹은 목록을 다시 읽어 이 결함이 덜 드러난다.
@@ -299,6 +324,6 @@ demo_player_lake.Command.handle
 
 ## 이번 점검 결과
 
-2026-10-14 기준 직전 커밋 9c49842 이후 context 인계 함수 2개·Lake 모듈·관리 명령 3개의 문서와 README 실행 예시를 갱신했다. 문서 범위는 런타임 49파일·144개 기호(함수/클래스 97개·직접 메서드 47개)다. 인계 manifest의 context_route 고정값과 실제 경로 차이, 현재 덤프 범위와 manifest 검사 범위를 문서에 기록했다. 실제 Mongo 인계 실행은 이번 문서 갱신에 포함하지 않는다.
+2026-10-14 기준 직전 커밋 a4eaae0 이후 Lake 저장·버전 비교·Mongo 대조·대조 fixture·고정 사건 내보내기 문서를 추가하고 사건의 실제 UTC 시각 정렬을 반영했다. 문서 범위는 런타임 55파일·165개 기호(함수/클래스 108개·직접 메서드 57개)다. 실제 Mongo 대조·사건 내보내기는 이번 문서 갱신에서 실행하지 않는다.
 
-검증 결과: 변경 기호 15개의 문서 누락·파싱 오류·미기재 기호·인수 구조 불일치 0건, 전체 49파일의 시그니처·문서 링크 오류 0건이다. 새 관리 명령 3개의 help와 fixture 7개 case의 정상/예상 실패 종료를 확인했다. Django 시스템 검사는 기존 urls.W005 경고 1건과 함께 완료했다.
+검증 결과: 변경 기호 22개의 문서 누락·파싱 오류·미기재 기호·인수 구조 불일치 0건, 전체 55파일의 시그니처·문서 링크 오류 0건이다. 새 명령 5개의 help, 대조 fixture 6개 case, 임시 Lake 생성·동일 입력 재생성·기존 폴더 거절·파일 변조 거절, mock 사건의 시간대별 실제 UTC 정렬을 확인했다. Django 시스템 검사는 기존 urls.W005 경고 1건과 함께 완료했다. 실제 Mongo 대조·사건 조회는 실행하지 않았다.

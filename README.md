@@ -22,7 +22,8 @@ ad_server/
 │   ├── exporting.py      # 사건 NDJSON 입출력·내보내기
 │   ├── snapshot_intake.py # 공개 스냅샷 검사·비교·누락 기록·계약·폴더 인계
 │   ├── context_projection.py # 수신 계약 대조·공개 subject/context 정규화
-│   ├── lake_files.py     # 메모리 history 중복 제거·current 최대 버전 선택
+│   ├── lake_files.py     # history/current 계산·새 Lake 버전 저장
+│   ├── sink_evidence.py  # Lake와 Mongo 공개 상태 대조
 │   ├── timestamps.py     # ISO 시각 UTC 정규화
 │   ├── delivery.py       # 미전달 사건의 로컬 파일 전달·표식 갱신
 │   ├── reporting.py      # 서울 노출일별 집계·보고서 게시·조회
@@ -215,7 +216,7 @@ python ad_config/manage.py export_ad_events \
   --until '2026-10-08T00:00:00+09:00'
 ```
 
-범위는 **impression_time 기준 [since, until)**입니다. 클릭은 해당 노출 시각을 기준으로 포함하므로 클릭의 event_time이 종료 경계 이후일 수도 있습니다. 옵션을 생략하면 해당 경계를 제한하지 않습니다. 전체 사건을 읽은 뒤 필터링하고 event_time·event_id 순서로 정렬합니다.
+범위는 **impression_time 기준 [since, until)**입니다. 클릭은 해당 노출 시각을 기준으로 포함하므로 클릭의 event_time이 종료 경계 이후일 수도 있습니다. 옵션을 생략하면 해당 경계를 제한하지 않습니다. 전체 사건을 읽은 뒤 필터링하고 UTC로 파싱한 실제 event_time·event_id 순서로 정렬합니다. 원본 시각 문자열은 유지합니다.
 
 출력은 Mongo `_id`를 제외한 공개 12필드의 UTF-8 NDJSON이며 같은 경로의 파일을 덮어씁니다. 명령은 `path`, `rows`, `sha256`, `schema_version`, `source_kind`, UTC로 정규화한 `since`·`until`을 JSON으로 표준 출력합니다. 별도 manifest 파일은 만들지 않습니다. 로컬 `data/`는 Git에서 제외됩니다.
 
@@ -336,9 +337,28 @@ python ad_config/manage.py demo_player_lake --case delete
 
 `demo_player_lake --case`는 `duplicates`, `invalid-schema`, `change-id-conflict`, `versions`, `delete`, `version-conflict`, `empty`를 지원합니다. 세 오류 case는 실패 종료하고 duplicates는 current 계산을 생략합니다. 인계 manifest의 `context_route` 값은 현재 `/api/ads/context/`로 고정되어 있지만 실제 매체 context API는 `/api/media/context/`입니다. [파일별 계약](docs/ad-server-routing/README.md)을 확인합니다.
 
+## Lake 버전 저장과 Mongo 대조
+
+같은 정규화 원본에서 history/current 파일과 manifest를 새 디렉터리에 저장합니다. 기존 버전은 덮어쓰지 않습니다.
+
+```bash
+python ad_config/manage.py build_player_lake --source data/player-context.ndjson --output data/lake/run-1
+python ad_config/manage.py build_player_lake --source data/player-context.ndjson --output data/lake/run-2
+python ad_config/manage.py compare_player_lake_versions --before data/lake/run-1 --after data/lake/run-2
+python ad_config/manage.py compare_player_sinks --source data/player-context.ndjson --lake-dir data/lake/run-1 --output data/player-sink-comparison.json
+python ad_config/manage.py demo_player_sink_comparison --case extra
+python ad_config/manage.py export_day26_ad_events --output data/ad-events-day26.ndjson
+```
+
+Lake manifest는 원본 SHA·행 수, 결과 파일별 SHA·행 수, 최대 사건 시각과 생성 시각을 기록하며 마지막에 저장됩니다. 중간 쓰기 실패 시 부분 디렉터리가 남을 수 있습니다. 버전 비교는 저장 파일 SHA·행 수를 검사하고 원본·history·current 지문 일치 여부를 출력합니다.
+
+sink 대조는 원본과 Lake 지문을 확인하고 history/current를 재계산하여 저장 결과와 대조한 뒤 지정 매체의 Mongo `player_context`를 읽습니다. `media_id`, `subject_id`, `version`, `deleted`, `context`를 비교하며 입력 대상 누락·상태 불일치·추가 Mongo 키를 JSON으로 기록합니다. 추가 키만 있으면 `input_scope_matches=true`이고, 누락/불일치가 있어도 명령은 정상 종료하므로 결과 값을 확인합니다. 원본과 Lake 파일은 출력 경로로 지정할 수 없습니다.
+
+대조 fixture는 `same`, `missing`, `newer`, `extra`, `duplicate`, `invalid`를 지원합니다. duplicate/invalid는 예상 오류로 종료하며 파일·DB를 수정하지 않습니다. 고정 사건 내보내기는 기존 출력 파일을 거절하고 임시 결과의 공개 12필드·schema·고유 사건 ID·SHA를 확인한 뒤 옮깁니다. `--since`·`--until`은 노출 시각 기준이며 사건은 실제 UTC 사건 시각·ID 순으로 정렬됩니다. [상세 호출·파일 계약](docs/ad-server-routing/README.md)을 확인합니다.
+
 ## 라우팅 문서
 
-[문서 안내](docs/README.md)와 [전체 라우팅](docs/ad-server-routing/README.md)에서 HTTP·관리 명령 경로, 계층별 호출 흐름, Mongo·파일 계약과 파일별 함수 시그니처를 확인할 수 있습니다. 현재 문서 범위는 런타임 Python 49파일, top-level 함수·클래스 97개, 직접 정의한 클래스 메서드 47개입니다.
+[문서 안내](docs/README.md)와 [전체 라우팅](docs/ad-server-routing/README.md)에서 HTTP·관리 명령 경로, 계층별 호출 흐름, Mongo·파일 계약과 파일별 함수 시그니처를 확인할 수 있습니다. 현재 문서 범위는 런타임 Python 55파일, top-level 함수·클래스 108개, 직접 정의한 클래스 메서드 57개입니다.
 
 ## 확인 및 현재 코드의 제한
 
@@ -367,6 +387,11 @@ python ad_config/manage.py help inspect_decision_context
 python ad_config/manage.py help export_context_handoff
 python ad_config/manage.py help inspect_player_lake
 python ad_config/manage.py help demo_player_lake
+python ad_config/manage.py help build_player_lake
+python ad_config/manage.py help compare_player_lake_versions
+python ad_config/manage.py help compare_player_sinks
+python ad_config/manage.py help demo_player_sink_comparison
+python ad_config/manage.py help export_day26_ad_events
 ```
 
 현재 시스템 검사에서는 `ads` URL namespace 중복 경고(`urls.W005`)가 발생합니다. `ads.urls`가 루트와 `/api/ads/`에 함께 등록되어 있기 때문입니다.
@@ -382,3 +407,5 @@ python ad_config/manage.py help demo_player_lake
 직전 커밋 `6a75121` 이후 갱신에서는 런타임 45파일·129개 기호의 문서 대응·시그니처·링크와 새 관리 명령 3개의 help를 확인했습니다. 계약 생성/소비 필드를 일치시킨 변경과 현재 context API, 체크포인트 생략 시 반복 처리되는 제한을 반영했습니다. Django 검사에는 기존 `urls.W005` 경고 1건이 남으며 실제 Mongo·HTTP 연동은 실행하지 않았습니다.
 
 2026-10-14 갱신에서는 context 인계·Lake 검사와 데모 문서를 추가했습니다. 전체 49파일·144개 기호의 시그니처·문서 링크, 새 명령 3개의 help, fixture 7개 case의 정상/예상 오류를 확인했습니다. Django 검사에는 기존 `urls.W005` 경고 1건이 남으며 실제 Mongo 인계는 실행하지 않았습니다.
+
+이번 Lake 저장·sink 대조 갱신에서는 전체 55파일·165개 기호의 시그니처·링크와 새 명령 5개의 help를 확인했습니다. 대조 fixture 6개, 임시 Lake 파일 생성·재생성·기존 폴더 및 변조 거절, mock 사건의 UTC 정렬 검증을 통과했습니다. 기존 Django `urls.W005` 경고 1건이 남으며 실제 Mongo 대조·사건 조회는 실행하지 않았습니다.

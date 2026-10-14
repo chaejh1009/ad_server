@@ -27,9 +27,9 @@ Signature: `def write_ndjson(path, rows)`
 Signature: `def export_ad_events(output_path, since=None, until=None)`
 
 1. **검증·변환:** 경계 시각은 [parse_utc](timestamps.py.md)로 파싱한다. 두 경계가 있으면 since < until이어야 한다. 각 사건의 impression_time을 UTC로 변환해 [since, until)로 필터링한다. 클릭도 원래 노출 시각 기준으로 포함한다.
-2. **직접 호출:** get_db().ad_events.find().sort(event_time, event_id) → parse_utc → EVENT_FIELDS 투영 → rows.sort(event_time, event_id) → write_ndjson.
+2. **직접 호출:** get_db().ad_events.find().sort(event_time, event_id) → parse_utc → EVENT_FIELDS 투영 → rows.sort(parse_utc(event_time), event_id) → write_ndjson.
 3. **반환·상태:** path·rows·sha256·schema_version="ad-event/v1"·source_kind="ad-events"·정규화된 since/until을 반환한다. _id는 제외한다. EVENT_FIELDS는 schema_version, event_id, decision_id, event_type, event_time, impression_time, media_id, subject, slot_id, campaign_id, owner_user_id, bid_amount다. 필수 필드 누락은 KeyError이며 별도 복구하지 않는다.
 
 ## 호출 계약과 제한
 
-시간 범위는 Mongo 쿼리에서 제한하지 않고 전체 사건을 읽은 뒤 메모리에서 필터링한다. 최종 정렬 키는 UTC로 파싱한 값이 아니라 원본 event_time 문자열과 event_id다. [events](events.py.md)가 저장하는 UTC 문자열을 전제로 한다. 반환 메타데이터는 명령의 표준 출력이며 별도 manifest 파일을 만들지 않는다. 이 모듈은 보고서 집계나 게시를 수행하지 않는다.
+시간 범위는 Mongo 쿼리에서 제한하지 않고 전체 사건을 읽은 뒤 메모리에서 필터링한다. 최종 정렬 키는 parse_utc(event_time)으로 얻은 실제 UTC 시각과 event_id다. 시간대 표현이 달라도 실제 시각 순으로 정렬하며 원본 문자열은 출력에 유지한다. event_time 파싱 오류는 파일 쓰기 전에 전파한다. 반환 메타데이터는 명령의 표준 출력이며 별도 manifest 파일을 만들지 않는다. 이 모듈은 보고서 집계나 게시를 수행하지 않는다.

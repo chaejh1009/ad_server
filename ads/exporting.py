@@ -4,6 +4,7 @@ from pathlib import Path
 from .mongo import get_db
 from .timestamps import parse_utc
 
+
 EVENT_FIELDS = (
     "schema_version", "event_id", "decision_id", "event_type", "event_time", "impression_time",
     "media_id", "subject", "slot_id", "campaign_id", "owner_user_id", "bid_amount",
@@ -55,7 +56,8 @@ def export_ad_events(output_path, since=None, until=None):
 
     # [문제 3 · 한 줄] 실제 사건 시각, 같은 시각이면 사건 ID로 rows 자체를 정렬한다.
     # 예시: items.sort(key=lambda item: (item["minute"], item["code"]))
-    rows.sort(key=lambda row: (row["event_time"], row["event_id"]))
+    #rows.sort(key=lambda row: (row["event_time"], row["event_id"]))
+    rows.sort(key=lambda row: (parse_utc(row["event_time"]), row["event_id"]))
 
     checksum = write_ndjson(output_path, rows)
     return {"path": str(output_path), "rows": len(rows), "sha256": checksum,
