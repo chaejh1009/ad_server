@@ -22,6 +22,7 @@ ad_server/
 │   ├── exporting.py      # 사건 NDJSON 입출력·내보내기
 │   ├── snapshot_intake.py # 공개 스냅샷 검사·비교·누락 기록·계약·폴더 인계
 │   ├── context_projection.py # 수신 계약 대조·공개 subject/context 정규화
+│   ├── lake_files.py     # 메모리 history 중복 제거·current 최대 버전 선택
 │   ├── timestamps.py     # ISO 시각 UTC 정규화
 │   ├── delivery.py       # 미전달 사건의 로컬 파일 전달·표식 갱신
 │   ├── reporting.py      # 서울 노출일별 집계·보고서 게시·조회
@@ -320,9 +321,24 @@ python ad_config/manage.py inspect_decision_context --subject 1 --latest
 
 `POST /api/media/context/`는 `X-Media-ID`·`X-Media-Key`와 JSON subject를 받아 현재 context를 반환합니다. 요청 예제는 [examples/context-request.json](examples/context-request.json)이며 결과는 `{"subject": {...}, "context": {...}}`입니다. 미저장·삭제 대상의 context는 `{}`이며 성공 응답에 `Cache-Control: no-store`가 설정됩니다. 인증 실패는 401, 입력 오류는 400, Mongo 오류는 503입니다. 광고 선택은 계속 요청에 포함된 context를 스냅샷으로 저장하며 이 조회를 자동 호출하지 않습니다.
 
+## context 인계와 Lake 미리보기
+
+일괄 반영을 완료한 입력과 체크포인트를 새 폴더로 인계합니다. 지정 매체의 Mongo 현재 문서를 조회해 입력 대상의 존재·버전·같은 버전의 상태를 확인합니다. 현재 덤프에는 그 매체의 입력 외 대상과 교육 fixture도 포함됩니다.
+
+```bash
+python ad_config/manage.py export_context_handoff --source data/player-context.ndjson --checkpoint data/context-checkpoint.json --output-dir data/handoff/context-v2
+python ad_config/manage.py inspect_player_lake --source data/handoff/context-v2/player-context-changes.ndjson --manifest data/handoff/context-v2/manifest.json --stage history
+python ad_config/manage.py inspect_player_lake --source data/handoff/context-v2/player-context-changes.ndjson --manifest data/handoff/context-v2/manifest.json --stage current --repeat 2 --reverse
+python ad_config/manage.py demo_player_lake --case delete
+```
+
+인계 폴더는 원본 변경 파일·현재 공개 문서·완료 checkpoint·manifest 네 파일을 담습니다. 기존 출력 폴더는 거절하며 임시 폴더를 완성한 뒤 옮깁니다. manifest의 SHA·행 수·매체·출처·checkpoint를 검사하는 Lake 명령은 원본에서 history/current를 메모리로 계산하고 첫 행과 결과 해시를 출력합니다. 현재 덤프 파일의 해시는 검사하지 않습니다. history는 동일 change_id의 동일 내용을 합치고 다른 내용을 거절합니다. current는 대상별 최대 version과 삭제 표시를 남기며 같은 version의 상태 충돌을 거절합니다. 검사·fixture 데모는 파일과 DB를 수정하지 않습니다.
+
+`demo_player_lake --case`는 `duplicates`, `invalid-schema`, `change-id-conflict`, `versions`, `delete`, `version-conflict`, `empty`를 지원합니다. 세 오류 case는 실패 종료하고 duplicates는 current 계산을 생략합니다. 인계 manifest의 `context_route` 값은 현재 `/api/ads/context/`로 고정되어 있지만 실제 매체 context API는 `/api/media/context/`입니다. [파일별 계약](docs/ad-server-routing/README.md)을 확인합니다.
+
 ## 라우팅 문서
 
-[문서 안내](docs/README.md)와 [전체 라우팅](docs/ad-server-routing/README.md)에서 HTTP·관리 명령 경로, 계층별 호출 흐름, Mongo·파일 계약과 파일별 함수 시그니처를 확인할 수 있습니다. 현재 문서 범위는 런타임 Python 45파일, top-level 함수·클래스 88개, 직접 정의한 클래스 메서드 41개입니다.
+[문서 안내](docs/README.md)와 [전체 라우팅](docs/ad-server-routing/README.md)에서 HTTP·관리 명령 경로, 계층별 호출 흐름, Mongo·파일 계약과 파일별 함수 시그니처를 확인할 수 있습니다. 현재 문서 범위는 런타임 Python 49파일, top-level 함수·클래스 97개, 직접 정의한 클래스 메서드 47개입니다.
 
 ## 확인 및 현재 코드의 제한
 
@@ -348,6 +364,9 @@ python ad_config/manage.py help demo_context_versions
 python ad_config/manage.py help project_player_context
 python ad_config/manage.py help refresh_player_context
 python ad_config/manage.py help inspect_decision_context
+python ad_config/manage.py help export_context_handoff
+python ad_config/manage.py help inspect_player_lake
+python ad_config/manage.py help demo_player_lake
 ```
 
 현재 시스템 검사에서는 `ads` URL namespace 중복 경고(`urls.W005`)가 발생합니다. `ads.urls`가 루트와 `/api/ads/`에 함께 등록되어 있기 때문입니다.
@@ -361,3 +380,5 @@ python ad_config/manage.py help inspect_decision_context
 - 2026-10-12 문서 갱신에서 시스템 검사는 기존 namespace 경고 1건과 함께 성공했고 관리 명령 13개의 help가 정상 로딩되었습니다. 런타임 37파일·94개 기호의 문서 대응·시그니처·헤딩·링크를 확인했으며 변경사항 감사의 누락·인수 구조 불일치는 0건입니다. 임시 파일·CLI와 오류 분기 검사 47건에서 계약 불일치 거절·조건을 맞춘 인계와 미리보기·비교와 누락 기록·정규화 해시·출력 계약을 확인했습니다. 실제 동시 writer·MySQL/CDC·Mongo·브라우저·게임 연동 실행은 이번 문서 갱신에 포함하지 않았습니다.
 
 직전 커밋 `6a75121` 이후 갱신에서는 런타임 45파일·129개 기호의 문서 대응·시그니처·링크와 새 관리 명령 3개의 help를 확인했습니다. 계약 생성/소비 필드를 일치시킨 변경과 현재 context API, 체크포인트 생략 시 반복 처리되는 제한을 반영했습니다. Django 검사에는 기존 `urls.W005` 경고 1건이 남으며 실제 Mongo·HTTP 연동은 실행하지 않았습니다.
+
+2026-10-14 갱신에서는 context 인계·Lake 검사와 데모 문서를 추가했습니다. 전체 49파일·144개 기호의 시그니처·문서 링크, 새 명령 3개의 help, fixture 7개 case의 정상/예상 오류를 확인했습니다. Django 검사에는 기존 `urls.W005` 경고 1건이 남으며 실제 Mongo 인계는 실행하지 않았습니다.

@@ -4,7 +4,7 @@
 
 ## 범위
 
-직접 유지보수하는 런타임 Python 전체가 대상이다. 프로젝트 루트 상대경로를 유지하여 `files/<프로젝트 상대경로>.md`와 정확히 하나씩 대응시켰다. 현재 대상은 **45파일·88개 top-level 함수/클래스 기호·41개 직접 정의한 클래스 메서드**다. signature는 `python-routing-diff-audit/scripts/audit_routing.py`의 `inventory()` 출력과 일치한다.
+직접 유지보수하는 런타임 Python 전체가 대상이다. 프로젝트 루트 상대경로를 유지하여 `files/<프로젝트 상대경로>.md`와 정확히 하나씩 대응시켰다. 현재 대상은 **49파일·97개 top-level 함수/클래스 기호·47개 직접 정의한 클래스 메서드**다. signature는 `python-routing-diff-audit/scripts/audit_routing.py`의 `inventory()` 출력과 일치한다.
 
 | 실제 파일 | 라우팅 문서 | 책임 |
 |---|---|---|
@@ -53,6 +53,10 @@
 | `ads/management/commands/project_player_context.py` | [파일 문서](files/ads/management/commands/project_player_context.py.md) | 체크포인트로 중지/재개하며 정규화 전체 파일을 Mongo 반영 CLI |
 | `ads/management/commands/refresh_player_context.py` | [파일 문서](files/ads/management/commands/refresh_player_context.py.md) | 수신 스냅샷 전체의 최신 context 갱신 CLI |
 | `ads/management/commands/inspect_decision_context.py` | [파일 문서](files/ads/management/commands/inspect_decision_context.py.md) | 선택 당시 context와 현재 공개 복사본 비교 CLI |
+| `ads/lake_files.py` | [파일 문서](files/ads/lake_files.py.md) | 메모리 history 중복 제거·current 최대 버전 선택 |
+| `ads/management/commands/export_context_handoff.py` | [파일 문서](files/ads/management/commands/export_context_handoff.py.md) | 완료된 정규화 입력·위치·현재 Mongo 공개 문서를 새 인계 폴더로 묶는다 |
+| `ads/management/commands/inspect_player_lake.py` | [파일 문서](files/ads/management/commands/inspect_player_lake.py.md) | 고정 정규화 파일에서 history/current를 저장 없이 미리 본다 |
+| `ads/management/commands/demo_player_lake.py` | [파일 문서](files/ads/management/commands/demo_player_lake.py.md) | 별도 메모리 fixture로 중복·버전·삭제·거절을 관찰한다 |
 
 `ads/tests.py` 등 테스트, `ads/migrations/**`, 내용이 없는 `__init__.py`는 실행 호출 문서 대상에서 제외한다. `ads/admin.py`·`ads/models.py`는 현재 import/주석뿐이어도 Django 앱의 런타임 모듈이므로 포함한다. `.venv`·`__pycache__`·SQLite DB·`.env`·로그·이미지 등 생성/비밀/비Python 파일도 제외한다. 템플릿·정적 이미지의 소비 경로는 담당 view/settings 문서에 기록한다.
 
@@ -252,6 +256,24 @@ Django form view가 처리하는 HEAD/OPTIONS 등 프레임워크 동작은 별�
 - `python ad_config/manage.py refresh_player_context --source data/player-snapshot.ndjson --contract data/player-contract.json [--media-id village-game]`: 전체 계약·정규화를 마친 뒤 행별 버전 정책으로 반영한다. 누락 ID를 삭제하지 않으며 중간 실패 시 선행 반영은 남는다. [갱신 명령](files/ads/management/commands/refresh_player_context.py.md).
 - `python ad_config/manage.py inspect_decision_context --subject 1 --latest [--media-id village-game]` 또는 `--decision-id ID`: 저장된 선택 당시 context와 현재 공개 복사본의 키/값 차이를 읽기만 한다. subject 조회에는 latest가 필요하고 decision-id와 latest는 함께 지정할 수 없다. [비교 명령](files/ads/management/commands/inspect_decision_context.py.md).
 
+## context 인계와 Lake 호출
+
+```text
+export_context_handoff.Command.handle
+  -> context_projection.export_context_handoff
+     -> 입력·완료 checkpoint 검사 -> _read_handoff_context -> Mongo player_context 조회
+     -> 임시 폴더에 원본·현재 덤프·checkpoint·manifest 작성 -> 최종 폴더 rename
+inspect_player_lake.Command.handle
+  -> _read_context_changes -> 선택 manifest/완료 checkpoint 대조
+  -> 반복·역순 -> lake_files.build_history -> 선택 build_current -> JSON 미리보기
+demo_player_lake.Command.handle
+  -> fixture_change -> build_history -> duplicates 외 build_current -> JSON 관찰/오류
+```
+
+`export_context_handoff --source data/player-context.ndjson --checkpoint data/context-checkpoint.json --output-dir data/handoff/context-v2`는 새 인계 폴더만 생성한다. 현재 덤프는 입력 대상에 한정하지 않고 지정 매체 전체를 포함한다. [인계 파일 계약](files/ads/context_projection.py.md)을 따른다.
+
+`inspect_player_lake --source data/handoff/context-v2/player-context-changes.ndjson --manifest data/handoff/context-v2/manifest.json --stage current --repeat 2 --reverse`는 입력 검증 후 메모리에서 재계산한다. [검사 명령](files/ads/management/commands/inspect_player_lake.py.md)은 현재 덤프의 해시 검증을 수행하지 않는다. `demo_player_lake --case delete` 등은 별도 fixture를 사용한다. [Lake 함수](files/ads/lake_files.py.md)는 history를 event_time/change_id 순, current를 _id 순으로 반환한다.
+
 ## 현재 구현에서 점검할 문제
 
 1. `repository.save_bid_document()`는 bids에 저장한 뒤 orders에서 반환 문서를 읽는다. 보통 None이어서 `views.bids`의 JsonResponse에서 TypeError/500이 날 수 있다. 저장된 입찰과 HTTP 성공을 구별한다. 웹은 목록을 다시 읽어 이 결함이 덜 드러난다.
@@ -277,4 +299,6 @@ Django form view가 처리하는 HEAD/OPTIONS 등 프레임워크 동작은 별�
 
 ## 이번 점검 결과
 
-2026-10-13 기준 직전 커밋 6a75121과 작업 트리를 대조해 새 관리 명령 3개·context_projection 함수 5개·context 조회 API와 계약 필드 수정을 반영했다. 런타임 45파일·129개 기호(함수/클래스 88개·직접 정의 메서드 41개)의 AST 시그니처·파일 대응·문서 링크를 확인했다. 변경사항 감사의 문서 누락·오래된 문서·파싱 오류·미기재 기호·인수 구조 불일치는 0건이다. 새 관리 명령 3개의 help가 로딩되었고 Django 시스템 검사에는 기존 urls.W005 경고가 남는다. 체크포인트 생략 시 위치가 증가하지 않는 현재 코드의 제한을 명시했다. 실제 Mongo 반영·HTTP·CDC 실행은 수행하지 않았다.
+2026-10-14 기준 직전 커밋 9c49842 이후 context 인계 함수 2개·Lake 모듈·관리 명령 3개의 문서와 README 실행 예시를 갱신했다. 문서 범위는 런타임 49파일·144개 기호(함수/클래스 97개·직접 메서드 47개)다. 인계 manifest의 context_route 고정값과 실제 경로 차이, 현재 덤프 범위와 manifest 검사 범위를 문서에 기록했다. 실제 Mongo 인계 실행은 이번 문서 갱신에 포함하지 않는다.
+
+검증 결과: 변경 기호 15개의 문서 누락·파싱 오류·미기재 기호·인수 구조 불일치 0건, 전체 49파일의 시그니처·문서 링크 오류 0건이다. 새 관리 명령 3개의 help와 fixture 7개 case의 정상/예상 실패 종료를 확인했다. Django 시스템 검사는 기존 urls.W005 경고 1건과 함께 완료했다.

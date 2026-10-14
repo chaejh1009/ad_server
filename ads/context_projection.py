@@ -17,6 +17,9 @@ from .snapshot_intake import (
 from .timestamps import parse_utc
 from pymongo.errors import DuplicateKeyError
 from .mongo import get_db
+import shutil
+from datetime import datetime, timezone
+
 
 def read_snapshot_package(source, contract_path):
     """24일차의 동결된 원문·수신 계약을 소비하기 직전에 대조한다."""
@@ -373,3 +376,107 @@ def refresh_snapshot(source, contract_path, media_id="village-game"):
     return {"source": str(source), "contract": str(contract_path), "rows": len(rows),
             "source_sha256": inspected["sha256"], "media_id": media_id,
             "counts": counts, "preview": changes[:1]}
+
+def _read_handoff_context(media_id, input_rows):
+    rows = list(get_db().player_context.find({"media_id": media_id}).sort("_id", 1))
+    fields = {"_id", "media_id", "subject_id", "version", "deleted", "context",
+              "source_kind", "change_id", "event_time"}
+    by_key = {}
+    for row in rows:
+        if set(row) != fields or type(row["deleted"]) is not bool:
+            raise ValueError("저장 context의 공개 문서 계약이 다릅니다.")
+        change = {"schema_version": "player-context-change/v1",
+                  "op": "delete" if row["deleted"] else "upsert",
+                  **{name: row[name] for name in fields - {"_id", "deleted"}}}
+        if make_context_document(change) != row:
+            raise ValueError("저장 context의 대상 키와 내용이 다릅니다.")
+        if row["_id"] in by_key:
+            raise ValueError("저장 context의 대상 키가 중복됩니다.")
+        by_key[row["_id"]] = row
+
+    coverage = {"matched_rows": 0, "equal_version_rows": 0, "newer_version_rows": 0}
+    seen = set()
+    for incoming in input_rows:
+        document = make_context_document(incoming)
+        key = document["_id"]
+        if key in seen:
+            raise ValueError("인계 입력의 대상 키가 중복됩니다.")
+        seen.add(key)
+        current = by_key.get(key)
+        if current is None:
+            raise ValueError(f"인계 입력의 대상이 현재 context에 없습니다: {key}")
+        if current["version"] < document["version"]:
+            raise ValueError(f"현재 context의 version이 인계 입력보다 작습니다: {key}")
+        if current["version"] == document["version"]:
+            if (current["deleted"] != document["deleted"]
+                    or current["context"] != document["context"]):
+                raise ValueError(f"version_conflict: 같은 version의 입력과 현재 context 상태가 다릅니다: {key}")
+            coverage["equal_version_rows"] += 1
+        else:
+            coverage["newer_version_rows"] += 1
+        coverage["matched_rows"] += 1
+    return rows, coverage
+
+def export_context_handoff(source_path, checkpoint_path, output_dir, media_id="village-game"):
+    context_subject_key(media_id, "handoff")
+    source, checkpoint, target = Path(source_path), Path(checkpoint_path), Path(output_dir)
+    if target.exists():
+        raise ValueError("새 인계 폴더를 지정하세요.")
+    # [문제 1 · 여러 줄] 입력과 기록을 검사하고 아직 끝나지 않은 위치를 거절한다. (4줄)
+    # 예시: entries, digest = read_valid_file(input_path)
+    #       index = read_marker(marker, digest, len(entries))
+    #       if index != len(entries):
+    #           raise ValueError("unfinished")
+    rows, checksum = _read_context_changes(source)
+    position = _read_context_checkpoint(checkpoint, checksum, len(rows))
+    if position != len(rows):
+        raise ValueError("마지막 자료까지 반영되지 않았습니다.")
+
+    if any(row["source_kind"] != SOURCE_KIND or row["media_id"] != media_id for row in rows):
+        raise ValueError("지정 매체의 player-snapshot 입력만 인계합니다.")
+    state = {"schema_version": "context-checkpoint/v1",
+             "source_sha256": checksum, "next_line": position}
+    context, coverage = _read_handoff_context(media_id, rows)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # 인계 파일을 모두 준비한 뒤에만 새 최종 폴더로 공개한다.
+    with tempfile.TemporaryDirectory(prefix=".handoff-", dir=target.parent) as folder:
+        staged = Path(folder) / "package"
+        staged.mkdir()
+        # [문제 2 · 여러 줄] 원문 bytes를 복사하고 입력 SHA와 같은지 대조한다. (4줄)
+        # 예시: shutil.copyfile(input_path, copied_path)
+        #       copied_digest = hashlib.sha256(copied_path.read_bytes()).hexdigest()
+        #       if copied_digest != digest:
+        #           raise ValueError("changed")
+        shutil.copyfile(source, staged / "player-context-changes.ndjson")
+        copied_hash = hashlib.sha256((staged / "player-context-changes.ndjson").read_bytes()).hexdigest()
+        if copied_hash != checksum:
+            raise ValueError("복사과정에서 원본이 훼손되었습니다.")
+
+        # [문제 3 · 한 줄] 현재 공개 문서를 임시 파일에 쓰고 파일 SHA를 받는다.
+        # 예시: digest = write_ndjson(temporary / "records.ndjson", records)
+        context_hash = write_ndjson(staged / "player-context.ndjson", context)
+
+        (staged / "checkpoint.json").write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
+        manifest = {
+            "artifact_id": "MongoDB village_ads.player_context", "artifact_version": "v2",
+            "original_input_path": str(source),
+            "input_path": str(target / "player-context-changes.ndjson"), "input_sha256": checksum,
+            "input_schema_version": "player-context-change/v1", "source_kind": SOURCE_KIND,
+            "input_rows": len(rows), "media_id": media_id, "input_coverage": coverage,
+            "checkpoint": state, "checkpoint_path": str(target / "checkpoint.json"),
+            "context_path": str(target / "player-context.ndjson"), "context_sha256": context_hash,
+            "context_rows": len(context),
+            "context_fields": ["_id", "media_id", "subject_id", "version", "deleted", "context",
+                               "source_kind", "change_id", "event_time"],
+            "context_source_kind_counts": {kind: sum(row["source_kind"] == kind for row in context)
+                                           for kind in (SOURCE_KIND, "teaching-fixture")},
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "binlog_cdc_status": "not-configured",
+            "context_route": "/api/ads/context/", "advertiser_report_route": "/advertiser/reports/",
+        }
+        (staged / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2),
+                                             encoding="utf-8")
+        # [문제 4 · 한 단어] 완성된 임시 폴더를 최종 새 폴더로 옮기는 메서드다.
+        # 힌트 4: 24일차의 검증된 인계 폴더를 마지막에 옮긴 Path 메서드다.
+        staged.rename(target)
+    return manifest

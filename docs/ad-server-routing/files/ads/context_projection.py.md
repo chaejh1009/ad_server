@@ -118,3 +118,19 @@ Signature: `def refresh_snapshot(source, contract_path, media_id='village-game')
 ## HTTP·광고 선택과의 연결
 
 [views.context_view](views.py.md)는 get_context로 현재 공개 복사본을 읽는다. decisions.context는 선택 당시 요청 값을 유지하며 [inspect_decision_context](management/commands/inspect_decision_context.py.md)가 현재 상태와 비교한다. choose_ad는 현재 저장 context를 자동 조회하지 않는다. 일괄 반영·스냅샷 갱신은 별도 CLI이며 snapshot 누락 ID로 삭제를 추론하지 않는다.
+
+## `def _read_handoff_context(media_id, input_rows)`
+
+Signature: `def _read_handoff_context(media_id, input_rows)`
+
+1. **검증·변환:** 지정 매체의 저장 문서가 정확한 공개 9필드와 bool deleted를 갖는지 검사하고 change로 재구성해 make_context_document 결과와 대조한다. 입력 대상 중복·현재 대상 누락·낮은 현재 version·동일 version의 deleted/context 충돌을 거절한다.
+2. **직접 호출:** get_db().player_context.find({media_id}).sort("_id", 1) → make_context_document(저장/입력) → 대상별 비교.
+3. **반환·상태:** (지정 매체 전체 문서, matched_rows·equal_version_rows·newer_version_rows)를 반환한다. 입력에 없는 대상과 teaching-fixture 문서도 지정 매체의 현재 덤프에 포함된다. Mongo는 조회만 하며 오류를 전파한다.
+
+## `def export_context_handoff(source_path, checkpoint_path, output_dir, media_id='village-game')`
+
+Signature: `def export_context_handoff(source_path, checkpoint_path, output_dir, media_id='village-game')`
+
+1. **검증·변환:** 매체 키·전체 입력·체크포인트 SHA와 완료 위치를 검사한다. 지정 매체의 player-snapshot 입력만 허용하며 기존 출력 폴더는 거절한다. 현재 문서의 입력 포함 여부와 버전은 _read_handoff_context가 검사한다.
+2. **직접 호출:** context_subject_key → _read_context_changes → _read_context_checkpoint → _read_handoff_context → TemporaryDirectory → shutil.copyfile·SHA 대조 → write_ndjson → JSON write_text → staged.rename(target).
+3. **반환·상태:** 새 폴더에 player-context-changes.ndjson·player-context.ndjson·checkpoint.json·manifest.json을 완성하고 manifest를 반환한다. 입력/현재 SHA·행 수·coverage·출처별 현재 행 수·최종 경로·UTC 생성 시각을 기록한다. artifact_id는 고정 문자열 MongoDB village_ads.player_context이며 실제 DB 설정을 반영하지 않는다. binlog_cdc_status는 not-configured다. context_route는 현재 코드상 /api/ads/context/로 기록되지만 실제 매체 조회 경로는 /api/media/context/다. 실패 시 임시 폴더를 정리하며 Mongo를 수정하지 않는다. DB 조회와 파일 생성 전체를 묶는 잠금·트랜잭션은 없다.
